@@ -1,0 +1,26 @@
+# Environnement Python
+env/
+__pycache__/
+*.pyc
+*.pyo
+.ipynb_checkpoints/
+
+# Données raster lourdes (> 100 MB — limite GitHub)
+*.tif
+*.tiff
+!test_geotiff/rgb_test.tif
+!output/patisen/binary_mask.tif
+!test_geotiff/output/panels_viz.tif
+
+# Sorties volumineuses
+output/ortho/
+output/patisen/panels_viz*.tif
+output/patisen/panels_watershed_viz.tif
+output/patisen/instance_eval/instance_eval_viz.tif
+
+# Logs d'entraînement temporaires
+trained_models/patisen_gpu/train_log.err
+
+# Fichiers système
+.DS_Store
+Thumbs.db
