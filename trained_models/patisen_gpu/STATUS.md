@@ -1,6 +1,6 @@
 # Rapport de surveillance — 2026-05-20
 
-## État : DÉMARRAGE — EN ATTENTE DE DONNÉES
+## État : DÉMARRAGE — EN ATTENTE DE DONNÉES (⚠️ CRASH PROBABLE)
 - Époque : 0/50 (aucune époque complète enregistrée)
 - Meilleure val IoU panneaux : N/A
 - Meilleure val loss : N/A
@@ -17,11 +17,17 @@
 - Hyperparamètres : lr=0.0001, panel_weight=15.0, batch=16, steps/epoch≈367
 - Statut log : `training_log.csv` vide — `train_log.txt` s'arrête à `Epoch 1/50`
 
-> ⚠️ **Alerte** : Depuis le démarrage (2026-05-19), `training_log.csv` reste vide.
-> Avec 367 steps/époque et un GPU A4500, la durée attendue est ~45–90 min/époque.
-> Après ~24 h, au moins une époque devrait être enregistrée.
-> Causes possibles : (1) entraînement toujours en cours — époque 1 très lente (prefetch I/O, première allocation VRAM) ; (2) processus suspendu ou crashé sans écriture dans le CSV.
-> **Action recommandée** : vérifier `ps aux | grep train.py` et la progression temps-réel dans le terminal d'entraînement.
+## ⚠️ ALERTE — Crash probable confirmé par `train_log.txt.err`
+```
+python3: can't open file '/home/solar/train.py': [Errno 2] No such file or directory
+```
+**Interprétation :** le script a été invoqué depuis `/home/solar/` mais `train.py`
+n'existe pas à cet emplacement. Le processus a crashé dès le lancement (ou à la relance).
+Le `train_log.txt` (347 lignes, architecture + data loading + `Epoch 1/50`) correspond
+à un run antérieur ou à une initialisation partielle qui s'est arrêtée avant toute époque.
+
+3 cycles de monitoring consécutifs (commits 7a172db → 80289e4 → f4ba46d)
+sans progression confirment qu'aucune époque ne s'est complétée depuis le 2026-05-19.
 
 ## Historique (10 dernières époques)
 | Époque | val_loss | val_panel_iou |
@@ -33,14 +39,20 @@
 ## Recommandations
 
 ### A. Données Malicounda
-Malicounda (86 280 panneaux annotés, 1.7 cm/px, 9.4 GB) représente un apport massif — **mais l'intégration multi-site est recommandée APRÈS le run Patisen seul**, pour ces raisons :
+Malicounda (86 280 panneaux annotés, 1.7 cm/px, 9.4 GB) représente un apport massif.
+**L'intégration multi-site est recommandée APRÈS un run Patisen-seul fonctionnel**, pour ces raisons :
 
-1. **Baseline d'abord** : le run Patisen-seul fournit une référence propre avant d'introduire deux distributions d'entrée distinctes.
-2. **Domaine différent** : résolution 1.7 cm/px vs ~3 cm/px — un panneau occupe proportionnellement plus de pixels à Malicounda (taille angulaire × 1.76). Le modèle doit d'abord converger sur Patisen.
-3. **Poids mémoire** : 9.4 GB d'image source → tiles 512×512 → limiter via `--max_tiles_per_site 5000` pour ne pas saturer la RAM/VRAM.
-4. **Tile size adapté** : à 1.7 cm/px, un tile 512 px couvre 8.7 m × 8.7 m — cohérent avec la taille réelle des panneaux. Aucun changement de `tile_size` requis.
+1. **Baseline d'abord** : le run Patisen-seul fournit une référence propre avant d'introduire
+   deux distributions d'entrée distinctes.
+2. **Domaine différent** : résolution 1.7 cm/px vs ~3 cm/px — un panneau occupe
+   proportionnellement plus de pixels à Malicounda (×1.76). Le modèle doit d'abord
+   converger sur Patisen.
+3. **Poids mémoire** : 9.4 GB d'image source → tiles 512×512 → limiter via
+   `--max_tiles_per_site 5000` pour ne pas saturer la RAM/VRAM.
+4. **Tile size** : à 1.7 cm/px, un tile 512 px couvre 8.7 m × 8.7 m — cohérent
+   avec la taille réelle des panneaux. Aucun changement de `tile_size` requis.
 
-**Commande recommandée pour l'entraînement multi-site (après fin du run Patisen) :**
+**Commande recommandée pour l'entraînement multi-site (après fix + fin run Patisen) :**
 ```bash
 python3 train.py \
   --ortho Data/Orthomosaic_Patisen.tif Malicounda/ortho.tif \
@@ -75,30 +87,46 @@ python3 train.py \
 | Paramètre | Valeur actuelle | Recommandation |
 |---|---|---|
 | `panel_weight` | 15.0 | Maintenir. Augmenter à **20–25** si val IoU < 0.40 après époque 10 |
-| `panel_oversample` | 4 | OK — 8.0 panneaux/batch sur 16. Augmenter à **6–8** si IoU stagne malgré panel_weight élevé |
+| `panel_oversample` | 4 | OK — 8.0 panneaux/batch sur 16. Augmenter à **6–8** si IoU stagne |
 | `tile_size` | 512 px | Adapté aux deux sites. Pas de changement nécessaire |
-| `batch_size` | 16 (actuel Patisen) | Réduire à **8** pour le multi-site (pression mémoire Malicounda) |
-| `lr` | 0.0001 | Correct pour Fast SCNN. Ajouter `ReduceLROnPlateau(patience=5, factor=0.5)` si plateau détecté |
+| `batch_size` | 16 (Patisen seul) | Réduire à **8** pour le multi-site (pression mémoire Malicounda) |
+| `lr` | 0.0001 | Correct pour Fast SCNN. Ajouter `ReduceLROnPlateau(patience=5, factor=0.5)` si plateau |
 | `stride` | 256 (overlap 50%) | Correct. Augmenter à 384 (overlap 25%) si temps/époque trop long en multi-site |
 
-### D. Diagnostic si l'entraînement ne progresse pas
-Si le processus est bloqué ou crashé, relancer avec :
+### D. Action immédiate requise — Corriger le chemin et relancer
+
+**Cause racine identifiée :** `train.py` introuvable dans `/home/solar/`.
+Lancer depuis le répertoire racine du projet :
+
 ```bash
+# 1. Vérifier qu'aucun processus n'est déjà actif
+ps aux | grep train.py
+
+# 2. Se placer dans le répertoire du projet (adapter selon installation)
+cd /chemin/vers/digitalize-panels-solar
+
+# 3. Vérifier que train.py est présent
+ls train.py
+
+# 4. Relancer avec séparation stdout/stderr
 nohup python3 train.py \
   --ortho Data/Orthomosaic_Patisen.tif \
   --shp Data/Panneaux_Patisen.shp \
   --tile_size 512 --stride 256 --batch_size 16 --epochs 50 \
   --panel_oversample 4 \
   --output_dir trained_models/patisen_gpu \
-  > trained_models/patisen_gpu/train_log.txt 2>&1 &
+  > trained_models/patisen_gpu/train_log.txt \
+  2> trained_models/patisen_gpu/train_log.txt.err &
+
+# 5. Suivre la progression
+tail -f trained_models/patisen_gpu/train_log.txt
 ```
-Vérifier la progression : `tail -f trained_models/patisen_gpu/train_log.txt`
 
 ## Décision
-**Entraînement démarré (2026-05-19) — aucune époque complète dans le dépôt au 2026-05-20.**
+**Entraînement démarré (2026-05-19) — crash probable confirmé au 2026-05-20.**
 
-- `training_log.csv` : vide
-- `train_log.txt` : architecture OK, bloqué à `Epoch 1/50`
-- Aucune décision d'escalade possible sans données de validation
-- **Prochain contrôle** : dès qu'au moins 1 époque est enregistrée dans `training_log.csv`
-- **Seuil de décision** : époque 10 pour statuer sur Fast SCNN vs U-Net
+- `training_log.csv` : vide après >24 h → anormal
+- `train_log.txt.err` : `No such file or directory` pour `train.py` depuis `/home/solar/`
+- **Action requise** : relancer `train.py` depuis le répertoire correct (voir section D ci-dessus)
+- **Aucune décision d'escalade possible** sans données de validation
+- **Seuil de décision** : époque 10 pour statuer sur Fast SCNN vs U-Net ResNet50
