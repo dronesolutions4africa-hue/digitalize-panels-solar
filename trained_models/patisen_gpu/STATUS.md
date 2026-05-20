@@ -1,13 +1,13 @@
 # Rapport de surveillance — 2026-05-20
 
-## État : DÉMARRAGE — CRASH CONFIRMÉ (5e cycle sans progression)
+## État : DÉMARRAGE — CRASH PERSISTANT (6e cycle sans progression)
 - Époque : 0/50 (aucune époque complète enregistrée)
 - Meilleure val IoU panneaux : N/A
 - Meilleure val loss : N/A
 - Tendance (5 dernières époques) : N/A (aucune donnée)
-- ETA estimée : inconnue — entraînement n'a jamais démarré effectivement
+- ETA estimée : inconnue — entraînement crashe avant toute époque
 
-## Contexte du run (données du dernier log)
+## Contexte du run (données du log)
 - GPU : NVIDIA RTX A4500 Laptop (13.7 GB VRAM) — `cuda_malloc_async`
 - Données chargées : `Orthomosaic_Patisen.tif` (18 695×16 883 px, chargé en 22.5s)
 - Masque : 34 445 277 px panneaux / 315 627 685 total (**10.9%**)
@@ -16,7 +16,7 @@
 - Modèle : Fast SCNN v2 — 1 901 450 params (7.25 MB)
 - Hyperparamètres : `lr=0.0001`, `panel_weight=15.0`, `batch=16`, `steps/epoch≈367`
 
-## ⚠️ ALERTE CRITIQUE — Crash confirmé (5 cycles consécutifs)
+## ⚠️ ALERTE CRITIQUE — Crash confirmé (6 cycles consécutifs)
 
 ```
 python3: can't open file '/home/solar/train.py': [Errno 2] No such file or directory
@@ -28,33 +28,34 @@ python3: can't open file '/home/solar/train.py': [Errno 2] No such file or direc
 | 2 | `80289e4` | 0 époque, démarrage en cours |
 | 3 | `f4ba46d` | 0 époque, alerte délai 24h |
 | 4 | `2513929` | 0 époque, crash confirmé |
-| **5** | **ce commit** | **0 époque — INTERVENTION HUMAINE REQUISE** |
+| 5 | `b36bd1c` | 0 époque, intervention requise |
+| **6** | **ce commit** | **0 époque — BLOCAGE TOTAL : CORRIGER LE CHEMIN train.py** |
 
 **Cause racine :** `train.py` n'existe pas dans `/home/solar/`. Le processus crashe au
-lancement avant toute époque. Le `train_log.txt` (347 lignes) correspond à une
-initialisation complète du data pipeline et de l'architecture, mais aucune métrique
-n'est produite.
+lancement avant toute époque. Le `train_log.txt` (347 lignes) documente une initialisation
+complète du data pipeline et de l'architecture modèle, mais jamais de step d'entraînement.
 
 ## Historique (10 dernières époques)
 | Époque | val_loss | val_panel_iou |
 |--------|----------|---------------|
 | —      | —        | —             |
 
-*Aucune époque complète dans `training_log.csv` (fichier vide, 0 octets).*
+*Aucune époque complète dans `training_log.csv` (fichier vide, 0 octets) depuis le cycle 1.*
 
 ## Recommandations
 
 ### A. Action immédiate — Corriger le chemin et relancer
 
-**Cause racine identifiée :** `train.py` est introuvable dans `/home/solar/`.
+**Cause racine identifiée :** `train.py` est appelé depuis `/home/solar/` alors qu'il réside
+dans le répertoire du projet cloné (`digitalize-panels-solar/`).
 
 ```bash
 # 1. Vérifier qu'aucun processus zombie n'est actif
-ps aux | grep train.py
+ps aux | grep train.py | grep -v grep
 
-# 2. Se placer dans le répertoire racine du projet
+# 2. Se placer dans le répertoire racine du projet (adapter le chemin)
 cd /chemin/vers/digitalize-panels-solar
-ls train.py  # doit répondre "train.py"
+ls train.py   # doit répondre "train.py"
 
 # 3. Relancer avec redirection propre (stdout + stderr séparés)
 nohup python3 train.py \
@@ -68,9 +69,11 @@ nohup python3 train.py \
 
 # 4. Vérifier que l'entraînement est actif après 60s
 sleep 60 && tail -5 trained_models/patisen_gpu/train_log.txt
+sleep 60 && tail -5 trained_models/patisen_gpu/training_log.csv
 ```
 
 ### B. Données Malicounda
+
 Malicounda (86 280 panneaux annotés, 1.7 cm/px, 9.4 GB) représente un apport massif.
 **L'intégration multi-site est recommandée APRÈS un run Patisen-seul fonctionnel**, pour ces raisons :
 
@@ -92,7 +95,8 @@ python3 train.py \
 ```
 
 ### C. Stratégie pour atteindre IoU >= 0.85
-Décision conditionnelle à l'époque 10 (après relance) :
+
+Décision conditionnelle à l'époque 10 (après relance réussie) :
 
 | Condition après époque 10 | Action recommandée |
 |---|---|
@@ -101,7 +105,7 @@ Décision conditionnelle à l'époque 10 (après relance) :
 | val IoU < 0.50 | Escalader directement vers **U-Net + ResNet50 ImageNet** multi-site |
 | Stagnation ≥ 5 époques | Réduire LR × 0.5 ou escalader vers U-Net |
 
-**Commande U-Net de secours (si escalade déclenchée) :**
+**Commande U-Net de secours (si escalade déclenchée après époque 10) :**
 ```bash
 python3 train.py \
   --model unet_resnet50 \
@@ -113,6 +117,7 @@ python3 train.py \
 ```
 
 ### D. Hyperparamètres (à appliquer lors de la relance)
+
 | Paramètre | Valeur actuelle | Recommandation |
 |---|---|---|
 | `panel_weight` | 15.0 | Maintenir. Augmenter à **20–25** si val IoU < 0.40 après époque 10 |
@@ -123,10 +128,12 @@ python3 train.py \
 | `stride` | 256 (overlap 50%) | Correct. Réduire overlap à 25% (`stride=384`) si temps/époque trop long |
 
 ## Décision
-**CRASH PERSISTANT — 5 cycles de monitoring sans aucune époque complète.**
 
-- `training_log.csv` : **0 octets** depuis le 2026-05-19 (>24h)
+**CRASH PERSISTANT — 6 cycles de monitoring consécutifs sans aucune époque complète.**
+
+- `training_log.csv` : **0 octets** (vide depuis le début)
 - `train_log.txt.err` : `No such file or directory` pour `train.py` depuis `/home/solar/`
 - **Aucune décision d'escalade possible** sans données de validation
 - **Seuil de décision** : époque 10 pour statuer sur Fast SCNN vs U-Net ResNet50
-- **Action humaine requise** : relancer `train.py` depuis le répertoire correct du projet
+- **Action humaine requise IMMÉDIATEMENT** : corriger le chemin et relancer `train.py`
+  depuis le répertoire racine du projet (`digitalize-panels-solar/`)
