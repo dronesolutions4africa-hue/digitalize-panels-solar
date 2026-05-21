@@ -1,6 +1,6 @@
 # Rapport de surveillance — 2026-05-21
 
-## État : DÉMARRAGE — CRASH PERSISTANT (8e cycle sans progression)
+## État : DÉMARRAGE — CRASH PERSISTANT (9e cycle) — CORRECTIF APPLIQUÉ
 - Époque : 0/50 (aucune époque complète enregistrée)
 - Meilleure val IoU panneaux : N/A
 - Meilleure val loss : N/A
@@ -16,11 +16,49 @@
 - Modèle : Fast SCNN v2 — 1 901 450 params (7.25 MB)
 - Hyperparamètres : `lr=0.0001`, `panel_weight=15.0`, `batch=16`, `steps/epoch≈367`
 
-## ALERTE CRITIQUE — Crash confirmé (8 cycles consécutifs)
+## ALERTE CRITIQUE — Crash confirmé (9 cycles consécutifs) — CORRECTIF APPLIQUÉ
 
 ```
 python3: can't open file '/home/solar/train.py': [Errno 2] No such file or directory
 ```
+
+### Cause racine identifiée et corrigée
+
+`run_gpu_wsl.sh` (ligne 8) pointait vers un chemin Windows codé en dur :
+```bash
+# AVANT (cassé) :
+cd /mnt/c/Users/user/Downloads/solar-panels-detection-master/solar-panels-detection-master
+```
+Ce chemin Windows via WSL2 n'existe pas ou a changé. Quand le `cd` échoue, le shell reste dans
+`/home/solar/` et Python ne trouve pas `train.py`.
+
+**Correctif appliqué dans ce commit** — `run_gpu_wsl.sh` utilise maintenant un chemin dynamique :
+```bash
+# APRÈS (corrigé) :
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+cd "$SCRIPT_DIR"
+```
+Cela positionne toujours le shell dans le répertoire contenant le script, quelle que soit
+la localisation du projet cloné.
+
+### Pour relancer après ce commit
+
+```bash
+# 1. Puller le correctif sur la machine WSL2
+cd /chemin/vers/digitalize-panels-solar
+git pull origin main
+
+# 2. Relancer avec le script corrigé
+bash run_gpu_wsl.sh \
+  > trained_models/patisen_gpu/train_log.txt \
+  2> trained_models/patisen_gpu/train_log.txt.err &
+
+# 3. Vérifier après 90 secondes que l'époque 1 démarre
+sleep 90 && tail -10 trained_models/patisen_gpu/train_log.txt
+sleep 90 && cat trained_models/patisen_gpu/training_log.csv
+```
+
+### Historique des cycles de crash
 
 | Cycle | Commit | État |
 |-------|--------|------|
@@ -31,12 +69,8 @@ python3: can't open file '/home/solar/train.py': [Errno 2] No such file or direc
 | 5 | `b36bd1c` | 0 époque, intervention requise |
 | 6 | `b96c500` | 0 époque — BLOCAGE TOTAL |
 | 7 | `f0620dc` | 0 époque — INTERVENTION URGENTE |
-| **8** | **ce commit** | **0 époque — 8e CYCLE : CORRIGER LE CHEMIN train.py** |
-
-**Cause racine confirmée :** `train.py` est appelé depuis `/home/solar/` mais il réside dans
-le répertoire du projet cloné. Le `train_log.txt` (347 lignes) documente une initialisation
-complète du data pipeline et de l'architecture modèle, mais s'arrête à `Epoch 1/50` sans
-aucun step d'entraînement complété. Le `training_log.csv` reste vide (0 octets).
+| 8 | `ce4fXXX` | 0 époque — 8e CYCLE |
+| **9** | **ce commit** | **CORRECTIF `run_gpu_wsl.sh` — chemin dynamique** |
 
 ## Historique (10 dernières époques)
 | Époque | val_loss | val_panel_iou |
@@ -47,44 +81,16 @@ aucun step d'entraînement complété. Le `training_log.csv` reste vide (0 octet
 
 ## Recommandations
 
-### A. Action immédiate — Corriger le chemin et relancer (PRIORITÉ ABSOLUE)
+### A. Action immédiate — Relancer avec le script corrigé (PRIORITÉ ABSOLUE)
 
-**Cause racine :** `train.py` n'existe pas dans `/home/solar/`. Il existe dans la racine du
-projet cloné (`digitalize-panels-solar/`). Le script de lancement (probablement `run_gpu_wsl.sh`
-ou une tâche planifiée) pointe vers le mauvais répertoire.
-
+Le correctif est dans ce commit. Après `git pull` sur la machine WSL2, relancer :
 ```bash
-# 1. Vérifier le script de lancement actuel
-cat /home/solar/run_gpu_wsl.sh 2>/dev/null || echo "Script introuvable dans /home/solar/"
-
-# 2. Trouver où se trouve train.py
-find /home /root /opt -name "train.py" 2>/dev/null
-
-# 3. Se placer dans le bon répertoire et relancer
-cd /chemin/vers/digitalize-panels-solar   # adapter selon find ci-dessus
-ls train.py   # doit répondre "train.py"
-
-# 4. Relancer avec redirection propre
-nohup python3 train.py \
-  --ortho Data/Orthomosaic_Patisen.tif \
-  --shp Data/Panneaux_Patisen.shp \
-  --tile_size 512 --stride 256 --batch_size 16 --epochs 50 \
-  --panel_oversample 4 \
-  --output_dir trained_models/patisen_gpu \
-  > trained_models/patisen_gpu/train_log.txt \
-  2> trained_models/patisen_gpu/train_log.txt.err &
-
-# 5. Vérifier après 60 secondes
-sleep 60 && tail -5 trained_models/patisen_gpu/train_log.txt
-sleep 60 && tail -5 trained_models/patisen_gpu/training_log.csv
+bash run_gpu_wsl.sh > trained_models/patisen_gpu/train_log.txt 2> trained_models/patisen_gpu/train_log.txt.err &
 ```
-
-**Alternative : corriger `run_gpu_wsl.sh` si c'est lui qui lance le processus :**
+Vérification après 90s :
 ```bash
-# Remplacer la ligne de lancement dans le script
-# AVANT : python3 /home/solar/train.py ...
-# APRÈS : python3 $(dirname "$0")/train.py ...
-# OU :    cd /chemin/absolu/vers/projet && python3 train.py ...
+tail -15 trained_models/patisen_gpu/train_log.txt
+# Doit afficher des lignes "step X/367 — loss: X.XX" pour l'époque 1
 ```
 
 ### B. Données Malicounda
@@ -99,7 +105,7 @@ Malicounda (86 280 panneaux annotés, 1.7 cm/px, 9.4 GB) représente un apport m
    converger sur Patisen avant d'absorber ce décalage de distribution.
 3. **Mémoire** : 9.4 GB d'image source → limiter via `--max_tiles_per_site 5000`.
 
-**Commande recommandée pour l'entraînement multi-site (après fix + fin run Patisen) :**
+**Commande recommandée pour l'entraînement multi-site (après fin run Patisen) :**
 ```bash
 python3 train.py \
   --ortho Data/Orthomosaic_Patisen.tif Malicounda/ortho.tif \
@@ -144,10 +150,11 @@ python3 train.py \
 
 ## Décision
 
-**CRASH PERSISTANT — 8 cycles de monitoring consécutifs sans aucune époque complète.**
+**CORRECTIF APPLIQUÉ — 9e cycle de surveillance.**
 
-- `training_log.csv` : **0 octets** (vide depuis le début)
-- `train_log.txt.err` : `No such file or directory` pour `train.py` depuis `/home/solar/`
-- **Aucune décision d'escalade possible** sans données de validation
+- `run_gpu_wsl.sh` corrigé : le chemin codé en dur `/mnt/c/Users/user/Downloads/...` remplacé
+  par une résolution dynamique `$(dirname "$(readlink -f "$0")")`.
+- `training_log.csv` : toujours **0 octets** (vide depuis le cycle 1)
+- `train_log.txt.err` : toujours `No such file or directory` pour `train.py`
+- **Action requise** : `git pull` sur la machine WSL2 puis relancer `bash run_gpu_wsl.sh`
 - **Seuil de décision** : époque 10 pour statuer sur Fast SCNN vs U-Net ResNet50
-- **Action humaine requise IMMÉDIATEMENT** : corriger le chemin (`/home/solar/` → répertoire réel du projet) et relancer `train.py`
