@@ -1,6 +1,6 @@
 # Rapport de surveillance — 2026-05-21
 
-## État : DÉMARRAGE — CRASH PERSISTANT (7e cycle sans progression)
+## État : DÉMARRAGE — CRASH PERSISTANT (8e cycle sans progression)
 - Époque : 0/50 (aucune époque complète enregistrée)
 - Meilleure val IoU panneaux : N/A
 - Meilleure val loss : N/A
@@ -16,7 +16,7 @@
 - Modèle : Fast SCNN v2 — 1 901 450 params (7.25 MB)
 - Hyperparamètres : `lr=0.0001`, `panel_weight=15.0`, `batch=16`, `steps/epoch≈367`
 
-## ⚠️ ALERTE CRITIQUE — Crash confirmé (7 cycles consécutifs)
+## ALERTE CRITIQUE — Crash confirmé (8 cycles consécutifs)
 
 ```
 python3: can't open file '/home/solar/train.py': [Errno 2] No such file or directory
@@ -29,12 +29,14 @@ python3: can't open file '/home/solar/train.py': [Errno 2] No such file or direc
 | 3 | `f4ba46d` | 0 époque, alerte délai 24h |
 | 4 | `2513929` | 0 époque, crash confirmé |
 | 5 | `b36bd1c` | 0 époque, intervention requise |
-| 6 | `ce78xxx` | 0 époque — BLOCAGE TOTAL |
-| **7** | **ce commit** | **0 époque — INTERVENTION URGENTE : corriger le chemin train.py** |
+| 6 | `b96c500` | 0 époque — BLOCAGE TOTAL |
+| 7 | `f0620dc` | 0 époque — INTERVENTION URGENTE |
+| **8** | **ce commit** | **0 époque — 8e CYCLE : CORRIGER LE CHEMIN train.py** |
 
-**Cause racine :** `train.py` n'existe pas dans `/home/solar/`. Le processus crashe au
-lancement avant toute époque. Le `train_log.txt` (347 lignes) documente une initialisation
-complète du data pipeline et de l'architecture modèle, mais jamais de step d'entraînement.
+**Cause racine confirmée :** `train.py` est appelé depuis `/home/solar/` mais il réside dans
+le répertoire du projet cloné. Le `train_log.txt` (347 lignes) documente une initialisation
+complète du data pipeline et de l'architecture modèle, mais s'arrête à `Epoch 1/50` sans
+aucun step d'entraînement complété. Le `training_log.csv` reste vide (0 octets).
 
 ## Historique (10 dernières époques)
 | Époque | val_loss | val_panel_iou |
@@ -45,20 +47,24 @@ complète du data pipeline et de l'architecture modèle, mais jamais de step d'e
 
 ## Recommandations
 
-### A. Action immédiate — Corriger le chemin et relancer
+### A. Action immédiate — Corriger le chemin et relancer (PRIORITÉ ABSOLUE)
 
-**Cause racine identifiée :** `train.py` est appelé depuis `/home/solar/` alors qu'il réside
-dans le répertoire du projet cloné (`digitalize-panels-solar/`).
+**Cause racine :** `train.py` n'existe pas dans `/home/solar/`. Il existe dans la racine du
+projet cloné (`digitalize-panels-solar/`). Le script de lancement (probablement `run_gpu_wsl.sh`
+ou une tâche planifiée) pointe vers le mauvais répertoire.
 
 ```bash
-# 1. Vérifier qu'aucun processus zombie n'est actif
-ps aux | grep train.py | grep -v grep
+# 1. Vérifier le script de lancement actuel
+cat /home/solar/run_gpu_wsl.sh 2>/dev/null || echo "Script introuvable dans /home/solar/"
 
-# 2. Se placer dans le répertoire racine du projet (adapter le chemin)
-cd /chemin/vers/digitalize-panels-solar
+# 2. Trouver où se trouve train.py
+find /home /root /opt -name "train.py" 2>/dev/null
+
+# 3. Se placer dans le bon répertoire et relancer
+cd /chemin/vers/digitalize-panels-solar   # adapter selon find ci-dessus
 ls train.py   # doit répondre "train.py"
 
-# 3. Relancer avec redirection propre (stdout + stderr séparés)
+# 4. Relancer avec redirection propre
 nohup python3 train.py \
   --ortho Data/Orthomosaic_Patisen.tif \
   --shp Data/Panneaux_Patisen.shp \
@@ -68,9 +74,17 @@ nohup python3 train.py \
   > trained_models/patisen_gpu/train_log.txt \
   2> trained_models/patisen_gpu/train_log.txt.err &
 
-# 4. Vérifier que l'entraînement est actif après 60s
+# 5. Vérifier après 60 secondes
 sleep 60 && tail -5 trained_models/patisen_gpu/train_log.txt
 sleep 60 && tail -5 trained_models/patisen_gpu/training_log.csv
+```
+
+**Alternative : corriger `run_gpu_wsl.sh` si c'est lui qui lance le processus :**
+```bash
+# Remplacer la ligne de lancement dans le script
+# AVANT : python3 /home/solar/train.py ...
+# APRÈS : python3 $(dirname "$0")/train.py ...
+# OU :    cd /chemin/absolu/vers/projet && python3 train.py ...
 ```
 
 ### B. Données Malicounda
@@ -130,11 +144,10 @@ python3 train.py \
 
 ## Décision
 
-**CRASH PERSISTANT — 7 cycles de monitoring consécutifs sans aucune époque complète.**
+**CRASH PERSISTANT — 8 cycles de monitoring consécutifs sans aucune époque complète.**
 
 - `training_log.csv` : **0 octets** (vide depuis le début)
 - `train_log.txt.err` : `No such file or directory` pour `train.py` depuis `/home/solar/`
 - **Aucune décision d'escalade possible** sans données de validation
 - **Seuil de décision** : époque 10 pour statuer sur Fast SCNN vs U-Net ResNet50
-- **Action humaine requise IMMÉDIATEMENT** : corriger le chemin et relancer `train.py`
-  depuis le répertoire racine du projet (`digitalize-panels-solar/`)
+- **Action humaine requise IMMÉDIATEMENT** : corriger le chemin (`/home/solar/` → répertoire réel du projet) et relancer `train.py`
