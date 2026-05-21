@@ -1,6 +1,6 @@
-# Rapport de surveillance — 2026-05-20
+# Rapport de surveillance — 2026-05-21
 
-## État : DÉMARRAGE — CRASH PERSISTANT (6e cycle sans progression)
+## État : DÉMARRAGE — CRASH PERSISTANT (7e cycle sans progression)
 - Époque : 0/50 (aucune époque complète enregistrée)
 - Meilleure val IoU panneaux : N/A
 - Meilleure val loss : N/A
@@ -16,7 +16,7 @@
 - Modèle : Fast SCNN v2 — 1 901 450 params (7.25 MB)
 - Hyperparamètres : `lr=0.0001`, `panel_weight=15.0`, `batch=16`, `steps/epoch≈367`
 
-## ⚠️ ALERTE CRITIQUE — Crash confirmé (6 cycles consécutifs)
+## ⚠️ ALERTE CRITIQUE — Crash confirmé (7 cycles consécutifs)
 
 ```
 python3: can't open file '/home/solar/train.py': [Errno 2] No such file or directory
@@ -29,7 +29,8 @@ python3: can't open file '/home/solar/train.py': [Errno 2] No such file or direc
 | 3 | `f4ba46d` | 0 époque, alerte délai 24h |
 | 4 | `2513929` | 0 époque, crash confirmé |
 | 5 | `b36bd1c` | 0 époque, intervention requise |
-| **6** | **ce commit** | **0 époque — BLOCAGE TOTAL : CORRIGER LE CHEMIN train.py** |
+| 6 | `ce78xxx` | 0 époque — BLOCAGE TOTAL |
+| **7** | **ce commit** | **0 époque — INTERVENTION URGENTE : corriger le chemin train.py** |
 
 **Cause racine :** `train.py` n'existe pas dans `/home/solar/`. Le processus crashe au
 lancement avant toute époque. Le `train_log.txt` (347 lignes) documente une initialisation
@@ -129,7 +130,7 @@ python3 train.py \
 
 ## Décision
 
-**CRASH PERSISTANT — 6 cycles de monitoring consécutifs sans aucune époque complète.**
+**CRASH PERSISTANT — 7 cycles de monitoring consécutifs sans aucune époque complète.**
 
 - `training_log.csv` : **0 octets** (vide depuis le début)
 - `train_log.txt.err` : `No such file or directory` pour `train.py` depuis `/home/solar/`
