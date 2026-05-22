@@ -14,7 +14,7 @@ python3 train.py \
   --shp Data/Panneaux_Patisen.shp \
   --tile_size 512 \
   --stride 256 \
-  --batch_size 16 \
+  --batch_size 8 \
   --epochs 50 \
   --panel_oversample 4 \
   --output_dir trained_models/patisen_gpu
