@@ -1,63 +1,57 @@
 # Rapport de surveillance — 2026-05-22
 
-## État : DÉMARRAGE — BLOCAGE ÉPOQUE 1 (11e cycle)
+## État : DÉMARRAGE — BLOCAGE ÉPOQUE 1 (12e cycle)
 - Époque : 0/50 (aucune époque complète enregistrée dans `training_log.csv`)
 - Meilleure val IoU panneaux : N/A
 - Meilleure val loss : N/A
 - Tendance (5 dernières époques) : N/A (aucune donnée)
-- ETA estimée : inconnue — époque 1 non complétée
+- ETA estimée : inconnue — époque 1 toujours non complétée
 
-## Contexte du run GPU (données du log)
+## Contexte du run GPU (données du log actuel)
 - GPU : NVIDIA RTX A4500 Laptop (13.7 GB VRAM) — `cuda_malloc_async`
 - Données chargées : `Orthomosaic_Patisen.tif` (18 695×16 883 px, chargé en 22.5s)
 - Masque : 34 445 277 px panneaux / 315 627 685 total (**10.9%**)
 - Tuiles : 3 687 brutes → 5 886 oversamplées (train), 921 (val)
-- Panneaux/batch : **8.0 / 16** (`panel_oversample=4`)
 - Modèle : Fast SCNN v2 — 1 901 450 params (7.25 MB)
-- Hyperparamètres : `lr=0.0001`, `panel_weight=15.0`, `batch=16→8 (corrigé)`, `steps/epoch≈367`
+- Hyperparamètres log actuel : `lr=0.0001`, `panel_weight=15.0`, `batch=16` (run AVANT fix)
+- **Script `run_gpu_wsl.sh` corrigé** : `batch_size=8` depuis cycle 11 ✓
 
-## Diagnostic cycle 11
+## Diagnostic cycle 12
 
-### Avancée vs cycle 10
+### Avancée vs cycle 11
 Aucun progrès dans `training_log.csv` — fichier toujours à **0 octet**.
 `train_log.txt` (347 lignes) se termine identiquement à `Epoch 1/50`.
-Le correctif `SCRIPT_DIR` du cycle 9 (commit `93d63f5`) est bien présent dans `run_gpu_wsl.sh`.
 
-### Cause probable du crash epoch 1 — batch_size=16
-`run_gpu_wsl.sh` avait **batch_size=16** (non conforme à la consigne batch_size=8).
-Avec 512×512 tuiles en fp32 et batch=16 :
-- Activations Fast SCNN branch pooling (576 canaux, 128×128) : **~600 MB × 16 = ~9.6 GB**
-- Gradients + état Adam (×3 les paramètres) ≈ **100 MB**
-- Risk OOM réel même avec 13.7 GB VRAM si les activations ne sont pas libérées entre couches
+### Analyse du blocage
+Le `train_log.txt` actuel indique `batch=16` et `steps/epoch~367`, confirmant que le log
+correspond au run **AVANT** le correctif `batch_size=8` du cycle 11.
+Le script `run_gpu_wsl.sh` contient maintenant `--batch_size 8` (vérifié ce cycle).
 
-**Correctif appliqué ce cycle (commit 11)** : `batch_size=16 → 8` dans `run_gpu_wsl.sh`.
+**La machine WSL2 n'a pas encore relancé `run_gpu_wsl.sh` après le `git pull` du cycle 11.**
 
-### Alerte critique — overfitting pathologique run précédent (`patisen/`, 200 époques)
+### Calcul d'impact batch=8 vs batch=16
+| Paramètre | batch=16 (crashé) | batch=8 (correctif) |
+|---|---|---|
+| Steps/époque | ~368 | ~736 |
+| Panel tiles/batch | 8.0 | **4.0** |
+| Mémoire GPU (activations) | ~9.6 GB | ~4.8 GB |
+| Temps/époque estimé | ~3 min | ~5–7 min |
+| ETA 50 époques | ~2.5h | ~4–6h |
 
-| Métrique | Époque 0 | Époque 10 | Époque 50 | Époque 199 |
-|---|---|---|---|---|
-| `train_panel_iou` | 0.725 | ~0.875 | ~0.900 | 0.902 |
-| `val_panel_iou` | 0.189 | **0.195** | **0.197** | **0.197** |
-| `val_loss` | 1.716 | ~1.02 | ~0.80 | 0.785 |
+Avec batch=8, les activations restent sous ~5 GB → large marge sur 13.7 GB VRAM.
 
-**La val_panel_iou ne dépasse JAMAIS 19.7% en 200 époques** malgré train_iou à 90.2%.
-Ce comportement n'est PAS un simple overfitting — c'est probablement :
-1. **Split spatial manquant** : les tuiles train/val sont tirées aléatoirement sur l'image entière.
-   Les tuiles adjacentes partagent des pixels → fuite de données en train → val artificiel
-2. **Biais de classe en validation** : si les tuiles val sont majoritairement sans panneaux,
-   l'IoU panneaux est structurellement bas
-3. **Méthode de métrique** : possible bug de calcul IoU sur la classe minority en val
-
-Le **run GPU actuel** (`patisen_gpu/`) utilise un `train.py` reécrit avec `panel_weight=15` et
-`panel_oversample=4` — ces mécanismes devraient partiellement contrer le biais, **mais si le split
-reste aléatoire**, le plafond val_iou risque d'être similaire.
+### Alerte persistante — overfitting run précédent (`patisen/`, 200 époques)
+La val_panel_iou n'a jamais dépassé **19.7%** en 200 époques (train_iou : 90.2%).
+Cause probable : **split spatial manquant** (tuiles train/val adjacentes → fuite de données).
+Le run `patisen_gpu/` intègre `panel_weight=15` et `panel_oversample=4` pour corriger le
+biais de classe, mais la question du split spatial reste critique à surveiller.
 
 ## Historique (10 dernières époques enregistrées)
 | Époque | val_loss | val_panel_iou |
 |--------|----------|---------------|
 | —      | —        | —             |
 
-*Aucune époque complète dans `training_log.csv` depuis le cycle 1 (11 cycles de surveillance).*
+*Aucune époque complète depuis 12 cycles de surveillance consécutifs.*
 
 ---
 
@@ -65,14 +59,14 @@ reste aléatoire**, le plafond val_iou risque d'être similaire.
 
 ### A. Données Malicounda
 
-**Recommandation : attendre un run Patisen-GPU fonctionnel (≥10 époques) avant d'intégrer Malicounda.**
+**Recommandation : NE PAS intégrer Malicounda maintenant — attendre ≥ 10 époques Patisen-GPU.**
 
 Raisons :
-1. **Blocage technique non résolu** : si l'epoch 1 crashe, lancer un second site (9.4 GB + GPU) aggravera la situation
-2. **Baseline nécessaire** : sans val_iou connue sur Patisen seul, impossible de mesurer l'apport de Malicounda
-3. **Résolution différente** : 1.7 cm/px vs 3 cm/px → tuile 512 px = 8.7 m×8.7 m à Malicounda contre 15.4 m×15.4 m à Patisen ; le modèle voit des panneaux de taille apparente ×1.76 plus grande — nécessite une normalisation dédiée ou un tile_size adapté (ex: 256 px pour égaliser l'emprise réelle)
+1. **Blocage non résolu** : relancer une session multi-site (9.4 GB) sans baseline stable aggrave le risque
+2. **Aucune val_iou connue** : impossible de mesurer l'apport de Malicounda sans référence Patisen
+3. **Résolution hétérogène** : 1.7 cm/px (Malicounda) vs 3 cm/px (Patisen) → tuile 512 px = 8.7 m×8.7 m vs 15.4 m×15.4 m. Les panneaux apparaissent ×1.76 plus grands à Malicounda. Un `tile_size=256` ou une normalisation d'échelle sera nécessaire
 
-**Commande multi-site (à lancer APRÈS ≥10 époques Patisen-GPU fonctionnelles) :**
+**Commande multi-site (à lancer APRÈS ≥ 10 époques Patisen-GPU fonctionnelles) :**
 ```bash
 python3 train.py \
   --ortho Data/Orthomosaic_Patisen.tif Malicounda/ortho.tif \
@@ -84,19 +78,19 @@ python3 train.py \
 
 ### B. Stratégie pour atteindre IoU >= 0.85
 
-Décision conditionnelle dès que l'entraînement démarre :
+Décision conditionnelle à appliquer dès l'époque 10 :
 
 | Condition à l'époque 10 | Action recommandée |
 |---|---|
 | val IoU > 0.70 | Continuer Fast SCNN 50 époques ; envisager multi-site Malicounda ensuite |
-| 0.50 ≤ val IoU ≤ 0.70 | Ajouter `ReduceLROnPlateau(patience=5, factor=0.5)` ; réévaluer à l'époque 20 |
-| val IoU < 0.50 | **Escalader vers U-Net + ResNet50 ImageNet** multi-site (voir commande ci-dessous) |
+| 0.50 ≤ val IoU ≤ 0.70 | Ajouter `ReduceLROnPlateau(patience=5, factor=0.5)` ; réévaluer à époque 20 |
+| val IoU < 0.50 | **Escalader vers U-Net + ResNet50 ImageNet** multi-site (commande ci-dessous) |
 | val IoU stagne ≥ 5 époques | Réduire LR × 0.5 ou escalader vers U-Net |
 
-**AVERTISSEMENT** : si val_iou plafonne à ~19–20% comme lors du run `patisen/`, ce n'est pas
-un problème de capacité modèle mais un **problème de split de données**. Dans ce cas :
-- Vérifier que `train.py` utilise un split **spatial** (blocs géographiques disjoints) plutôt qu'aléatoire
-- Vérifier la distribution class-balance dans les tuiles val (% pixels panneaux)
+**AVERTISSEMENT** : si val_iou plafonne à ~19–20% comme lors du run `patisen/`, ce n'est
+pas un problème de capacité modèle mais un **problème de split de données** (tuiles adjacentes
+partagées entre train et val). Vérifier que `train.py` utilise un split spatial par blocs
+géographiques disjoints, pas un split aléatoire.
 
 **Commande U-Net de secours :**
 ```bash
@@ -113,58 +107,61 @@ python3 train.py \
 
 | Paramètre | Valeur actuelle | Recommandation |
 |---|---|---|
-| `batch_size` | ~~16~~ → **8** | **CORRIGÉ ce cycle** — 16 était probablement cause du crash OOM epoch 1 |
+| `batch_size` | **8** (corrigé cycle 11) | OK. Si OOM persiste → réduire à **4** |
 | `panel_weight` | 15.0 | Maintenir. Augmenter à **20–25** si val IoU < 0.40 après époque 10 |
-| `panel_oversample` | 4 | OK — 8.0 panneaux/batch. Augmenter à **6–8** si IoU stagne |
-| `tile_size` | 512 px | 15.4 m×15.4 m à Patisen (3 cm/px). Adapté. Envisager 256 px à Malicounda (1.7 cm/px) |
+| `panel_oversample` | 4 | OK (4.0 panel/batch avec batch=8). Augmenter à **6–8** si IoU stagne |
+| `tile_size` | 512 px | 15.4 m×15.4 m à Patisen. Correct. Envisager 256 px pour Malicounda (1.7 cm/px) |
 | `lr` | 0.0001 | Correct. Ajouter `ReduceLROnPlateau(patience=5)` si plateau détecté |
 | `stride` | 256 (overlap 50%) | Correct. |
 
-**Action prioritaire** : relancer `run_gpu_wsl.sh` (batch corrigé) avec **stderr capturé** :
+**Action prioritaire sur WSL2** :
 ```bash
-cd /chemin/vers/digitalize-panels-solar
-git pull origin main  # récupérer batch_size=8
+cd /home/solar/digitalize-panels-solar
+git pull origin main
 bash run_gpu_wsl.sh \
   > trained_models/patisen_gpu/train_log.txt \
   2> trained_models/patisen_gpu/train_log.txt.err &
 echo "PID=$!"
 # Vérifier après 5 min
-sleep 300 && tail -5 trained_models/patisen_gpu/train_log.txt && cat trained_models/patisen_gpu/train_log.txt.err
+sleep 300 && tail -5 trained_models/patisen_gpu/train_log.txt
+cat trained_models/patisen_gpu/train_log.txt.err
 ```
 
-Si le nouveau `.err` contient `OOM` ou `ResourceExhausted` → réduire à `batch_size=4`.
+Si le `.err` contient `OOM` ou `ResourceExhausted` → réduire à `batch_size=4`.
 
 ---
 
 ## Décision
 
-**11e cycle — CORRECTIF batch_size=8 APPLIQUÉ — EN ATTENTE DE RELANCE.**
+**12e cycle — EN ATTENTE DE RELANCE — batch_size=8 confirmé dans `run_gpu_wsl.sh`.**
 
 Actions réalisées ce cycle :
-- `run_gpu_wsl.sh` : `batch_size=16 → 8` ✓ (commit 11)
 - `training_log.csv` : **0 octet** — époque 1 toujours non complétée ✗
-- Alerte overfitting run précédent documentée ✓
+- `run_gpu_wsl.sh` : `batch_size=8` confirmé (fix cycle 11 actif) ✓
+- Log actuel (`batch=16`) confirme crash pré-fix ✓
+- Alerte split spatial maintenue ✓
 
 Action requise sur la machine WSL2 :
-1. `git pull origin main` pour récupérer `batch_size=8`
-2. `bash run_gpu_wsl.sh > trained_models/patisen_gpu/train_log.txt 2> trained_models/patisen_gpu/train_log.txt.err &`
-3. Vérifier après **5 min** : `cat trained_models/patisen_gpu/train_log.txt.err` (OOM ?) + `tail trained_models/patisen_gpu/train_log.txt`
-4. Vérifier après **30 min** : `head -2 trained_models/patisen_gpu/training_log.csv` (époque 1 complétée ?)
+1. `git pull origin main` pour récupérer le correctif `batch_size=8`
+2. Relancer `run_gpu_wsl.sh` avec redirection stdout + stderr
+3. Vérifier après **5 min** : `cat trained_models/patisen_gpu/train_log.txt.err` (OOM ?)
+4. Vérifier après **30 min** : `head -2 trained_models/patisen_gpu/training_log.csv` (époque 1 ?)
 
 ---
 
 ### Historique des cycles de surveillance
 
-| Cycle | Commit | État |
-|-------|--------|------|
-| 1 | `7a172db` | training started — 0 époque |
-| 2 | `80289e4` | 0 époque, démarrage en cours |
-| 3 | `f4ba46d` | 0 époque, alerte délai 24h |
-| 4 | `2513929` | 0 époque, crash confirmé |
-| 5 | `b36bd1c` | 0 époque, intervention requise |
-| 6 | `b96c500` | 0 époque — BLOCAGE TOTAL |
-| 7 | `f0620dc` | 0 époque — INTERVENTION URGENTE |
-| 8 | `647d602` | 0 époque — 8e cycle |
-| 9 | `93d63f5` | CORRECTIF `run_gpu_wsl.sh` — chemin dynamique |
-| 10 | `c43d16f` | En attente relance — `train.py` atteint, époque 1 incomplète |
-| **11** | **ce commit** | **CORRECTIF batch_size=16→8 — relance requise** |
+| Cycle | État |
+|-------|------|
+| 1  | training started — 0 époque |
+| 2  | 0 époque, démarrage en cours |
+| 3  | 0 époque, alerte délai 24h |
+| 4  | 0 époque, crash confirmé |
+| 5  | 0 époque, intervention requise |
+| 6  | 0 époque — BLOCAGE TOTAL |
+| 7  | 0 époque — INTERVENTION URGENTE |
+| 8  | 0 époque — 8e cycle |
+| 9  | CORRECTIF `run_gpu_wsl.sh` — chemin dynamique (`SCRIPT_DIR`) |
+| 10 | En attente relance — `train.py` atteint, époque 1 incomplète |
+| 11 | CORRECTIF `batch_size=16→8` — relance requise |
+| **12** | **EN ATTENTE RELANCE — batch=8 confirmé, 0 époque (ce cycle)** |
