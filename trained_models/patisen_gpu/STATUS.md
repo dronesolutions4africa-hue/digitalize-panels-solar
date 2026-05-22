@@ -1,6 +1,6 @@
 # Rapport de surveillance — 2026-05-22
 
-## État : DÉMARRAGE — BLOCAGE ÉPOQUE 1 (13e cycle)
+## État : DÉMARRAGE — BLOCAGE ÉPOQUE 1 (14e cycle)
 - Époque : 0/50 (aucune époque complète enregistrée dans `training_log.csv`)
 - Meilleure val IoU panneaux : N/A
 - Meilleure val loss : N/A
@@ -13,28 +13,20 @@
 - Masque : 34 445 277 px panneaux / 315 627 685 total (**10.9%**)
 - Tuiles : 3 687 brutes → 5 886 oversamplées (train), 921 (val)
 - Modèle : Fast SCNN v2 — 1 901 450 params (7.25 MB)
-- Hyperparamètres log actuel : `lr=0.0001`, `panel_weight=15.0`, `batch=16` (log PRÉ-fix)
-- **Script `run_gpu_wsl.sh` corrigé** : `batch_size=8` + `SCRIPT_DIR` depuis cycle 11 ✓
+- Hyperparamètres actifs : `lr=0.0001`, `panel_weight=15.0`, `batch_size=8`
+- **`run_gpu_wsl.sh`** : `SCRIPT_DIR` + `batch_size=8` → prêt à l'emploi ✓
+- **`train.py`** : présent à la racine du dépôt ✓
 
-## Diagnostic cycle 13
+## Diagnostic cycle 14
 
-### Nouveauté vs cycle 12
-Aucun progrès dans `training_log.csv` — fichier toujours à **0 octet**.
-`train_log.txt` (347 lignes) se termine identiquement à `Epoch 1/50` — inchangé.
+### Situation vs cycle 13
+Aucun progrès détecté — fichiers identiques au cycle 13 :
+- `training_log.csv` : **0 octet** (0 époque complète)
+- `train_log.txt` (347 lignes) : se termine à `Epoch 1/50` — inchangé depuis cycle 10
+- `train_log.txt.err` : artefact pré-fix (`/home/solar/train.py` introuvable) — non bloquant pour le run actuel
 
-### Confirmation : `train.py` présent dans le dépôt git
-**Bonne nouvelle** : `train.py` est bien présent à la racine du dépôt (confirmé ce cycle).
-L'erreur `python3: can't open file '/home/solar/train.py'` dans `train_log.txt.err`
-est un **artefact d'un ancien run** (avant le fix SCRIPT_DIR du cycle 9) où le script
-était appelé depuis `/home/solar/` sans `cd` vers le répertoire du projet.
-
-Le `run_gpu_wsl.sh` actuel règle les deux problèmes :
-- `SCRIPT_DIR` → `cd "$SCRIPT_DIR"` → `python3 train.py` trouve bien `train.py` ✓
-- `batch_size=8` (au lieu de 16) → VRAM ~4.8 GB (largement sous 13.7 GB) ✓
-
-### Racine du blocage persistant
-**La machine WSL2 n'a pas encore exécuté `git pull && bash run_gpu_wsl.sh`** depuis le cycle 11.
-Les deux correctifs sont dans le dépôt mais pas encore appliqués sur la machine de production.
+### Racine du blocage
+**La machine WSL2 n'a pas exécuté `git pull && bash run_gpu_wsl.sh`** depuis que les correctifs ont été intégrés (cycle 11). Les deux correctifs sont dans le dépôt mais **pas encore appliqués sur la machine de production**.
 
 ### Calcul d'impact batch=8 vs batch=16
 | Paramètre | batch=16 (crashé) | batch=8 (correctif) |
@@ -51,7 +43,7 @@ Avec batch=8, large marge sur 13.7 GB VRAM → aucun risque OOM attendu.
 |--------|----------|---------------|
 | —      | —        | —             |
 
-*Aucune époque complète depuis 13 cycles de surveillance consécutifs.*
+*Aucune époque complète depuis 14 cycles de surveillance consécutifs.*
 
 ---
 
@@ -114,7 +106,15 @@ python3 train.py \
 | `lr` | 0.0001 | Correct. Ajouter `ReduceLROnPlateau(patience=5)` si plateau détecté |
 | `stride` | 256 (overlap 50%) | Correct. |
 
-**Action prioritaire sur WSL2 (CRITIQUE — 13e cycle sans démarrage) :**
+---
+
+## Décision
+
+**14e cycle — EN ATTENTE DE RELANCE — correctifs batch=8 + SCRIPT_DIR confirmés dans le dépôt.**
+
+Entraînement démarré, en attente de données (0 époque complète).
+
+**Action requise (unique) sur la machine WSL2 :**
 ```bash
 cd /home/solar/digitalize-panels-solar
 git pull origin main
@@ -128,25 +128,7 @@ sleep 180 && cat trained_models/patisen_gpu/train_log.txt.err
 sleep 1800 && head -3 trained_models/patisen_gpu/training_log.csv
 ```
 
-Si le `.err` contient `OOM` ou `ResourceExhausted` → réduire à `batch_size=4` dans `run_gpu_wsl.sh`.
-
----
-
-## Décision
-
-**13e cycle — EN ATTENTE DE RELANCE — correctifs batch=8 + SCRIPT_DIR confirmés dans le dépôt.**
-
-Diagnostic consolidé :
-- `training_log.csv` : **0 octet** — 0 époque complète (13e cycle consécutif) ✗
-- `train_log.txt` : modèle chargé, tuiles générées, `Epoch 1/50` amorcée, jamais complétée ✗
-- `train_log.txt.err` : erreur `/home/solar/train.py` = **artefact pré-fix (cycle 9)** — non bloquante pour le run actuel ✓
-- `train.py` : **présent dans le dépôt git** (confirmé cycle 13) ✓
-- `run_gpu_wsl.sh` : `SCRIPT_DIR` + `batch_size=8` → prêt à l'emploi ✓
-
-**Action requise (unique) sur la machine WSL2 :**
-```
-git pull origin main && nohup bash run_gpu_wsl.sh > ... &
-```
+Si `.err` contient `OOM` ou `ResourceExhausted` → réduire à `batch_size=4` dans `run_gpu_wsl.sh`.
 
 ---
 
@@ -166,4 +148,5 @@ git pull origin main && nohup bash run_gpu_wsl.sh > ... &
 | 10 | En attente relance — `train.py` atteint, époque 1 incomplète |
 | 11 | CORRECTIF `batch_size=16→8` — relance requise |
 | 12 | EN ATTENTE RELANCE — batch=8 confirmé, 0 époque |
-| **13** | **EN ATTENTE RELANCE — `train.py` confirmé dans dépôt, correctifs prêts** |
+| 13 | EN ATTENTE RELANCE — `train.py` confirmé dans dépôt, correctifs prêts |
+| **14** | **EN ATTENTE RELANCE — situation inchangée, correctifs prêts dans le dépôt** |
