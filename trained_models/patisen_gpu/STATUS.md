@@ -1,6 +1,6 @@
 # Rapport de surveillance — 2026-05-22
 
-## État : DÉMARRAGE — BLOCAGE ÉPOQUE 1 (14e cycle)
+## État : DÉMARRAGE — BLOCAGE ÉPOQUE 1 (15e cycle)
 - Époque : 0/50 (aucune époque complète enregistrée dans `training_log.csv`)
 - Meilleure val IoU panneaux : N/A
 - Meilleure val loss : N/A
@@ -14,19 +14,19 @@
 - Tuiles : 3 687 brutes → 5 886 oversamplées (train), 921 (val)
 - Modèle : Fast SCNN v2 — 1 901 450 params (7.25 MB)
 - Hyperparamètres actifs : `lr=0.0001`, `panel_weight=15.0`, `batch_size=8`
-- **`run_gpu_wsl.sh`** : `SCRIPT_DIR` + `batch_size=8` → prêt à l'emploi ✓
+- **`run_gpu_wsl.sh`** : `SCRIPT_DIR` + `batch_size=8` → correctifs dans le dépôt ✓
 - **`train.py`** : présent à la racine du dépôt ✓
 
-## Diagnostic cycle 14
+## Diagnostic cycle 15
 
-### Situation vs cycle 13
-Aucun progrès détecté — fichiers identiques au cycle 13 :
+### Situation vs cycle 14
+**Aucun progrès détecté** — fichiers identiques au cycle 14 :
 - `training_log.csv` : **0 octet** (0 époque complète)
 - `train_log.txt` (347 lignes) : se termine à `Epoch 1/50` — inchangé depuis cycle 10
-- `train_log.txt.err` : artefact pré-fix (`/home/solar/train.py` introuvable) — non bloquant pour le run actuel
+- `train_log.txt.err` : erreur `python3: can't open file '/home/solar/train.py': [Errno 2] No such file or directory` (artefact pré-fix, non bloquant pour le run actuel)
 
-### Racine du blocage
-**La machine WSL2 n'a pas exécuté `git pull && bash run_gpu_wsl.sh`** depuis que les correctifs ont été intégrés (cycle 11). Les deux correctifs sont dans le dépôt mais **pas encore appliqués sur la machine de production**.
+### Racine du blocage persistante
+**La machine WSL2 n'a toujours pas exécuté `git pull && bash run_gpu_wsl.sh`** depuis que les correctifs ont été intégrés (cycle 11). Les deux correctifs sont dans le dépôt depuis 4 cycles mais **pas encore appliqués sur la machine de production**.
 
 ### Calcul d'impact batch=8 vs batch=16
 | Paramètre | batch=16 (crashé) | batch=8 (correctif) |
@@ -43,7 +43,7 @@ Avec batch=8, large marge sur 13.7 GB VRAM → aucun risque OOM attendu.
 |--------|----------|---------------|
 | —      | —        | —             |
 
-*Aucune époque complète depuis 14 cycles de surveillance consécutifs.*
+*Aucune époque complète depuis 15 cycles de surveillance consécutifs.*
 
 ---
 
@@ -101,8 +101,8 @@ python3 train.py \
 |---|---|---|
 | `batch_size` | **8** (corrigé cycle 11) | OK. Si OOM persiste → réduire à **4** |
 | `panel_weight` | 15.0 | Maintenir. Augmenter à **20–25** si val IoU < 0.40 après époque 10 |
-| `panel_oversample` | 4 | OK (4.0 panel tiles/batch avec batch=8). Augmenter à **6–8** si IoU stagne |
-| `tile_size` | 512 px | 15.4 m×15.4 m à Patisen. Correct. Envisager 256 px pour Malicounda (1.7 cm/px) |
+| `panel_oversample` | 4 | OK. Augmenter à **6–8** si IoU stagne après époque 15 |
+| `tile_size` | 512 px | 15.4 m×15.4 m à Patisen (correct). Envisager 256 px pour Malicounda (1.7 cm/px) |
 | `lr` | 0.0001 | Correct. Ajouter `ReduceLROnPlateau(patience=5)` si plateau détecté |
 | `stride` | 256 (overlap 50%) | Correct. |
 
@@ -110,9 +110,9 @@ python3 train.py \
 
 ## Décision
 
-**14e cycle — EN ATTENTE DE RELANCE — correctifs batch=8 + SCRIPT_DIR confirmés dans le dépôt.**
+**15e cycle — EN ATTENTE DE RELANCE — correctifs batch=8 + SCRIPT_DIR confirmés dans le dépôt.**
 
-Entraînement démarré, en attente de données (0 époque complète).
+Entraînement démarré, en attente de données (0 époque complète depuis 15 cycles).
 
 **Action requise (unique) sur la machine WSL2 :**
 ```bash
@@ -134,19 +134,20 @@ Si `.err` contient `OOM` ou `ResourceExhausted` → réduire à `batch_size=4` d
 
 ### Historique des cycles de surveillance
 
-| Cycle | État |
-|-------|------|
-| 1  | training started — 0 époque |
-| 2  | 0 époque, démarrage en cours |
-| 3  | 0 époque, alerte délai 24h |
-| 4  | 0 époque, crash confirmé |
-| 5  | 0 époque, intervention requise |
-| 6  | 0 époque — BLOCAGE TOTAL |
-| 7  | 0 époque — INTERVENTION URGENTE |
-| 8  | 0 époque — 8e cycle |
-| 9  | CORRECTIF `run_gpu_wsl.sh` — chemin dynamique (`SCRIPT_DIR`) |
-| 10 | En attente relance — `train.py` atteint, époque 1 incomplète |
-| 11 | CORRECTIF `batch_size=16→8` — relance requise |
-| 12 | EN ATTENTE RELANCE — batch=8 confirmé, 0 époque |
-| 13 | EN ATTENTE RELANCE — `train.py` confirmé dans dépôt, correctifs prêts |
-| **14** | **EN ATTENTE RELANCE — situation inchangée, correctifs prêts dans le dépôt** |
+| Cycle | Date | État |
+|-------|------|------|
+| 1  | — | training started — 0 époque |
+| 2  | — | 0 époque, démarrage en cours |
+| 3  | — | 0 époque, alerte délai 24h |
+| 4  | — | 0 époque, crash confirmé |
+| 5  | — | 0 époque, intervention requise |
+| 6  | — | 0 époque — BLOCAGE TOTAL |
+| 7  | — | 0 époque — INTERVENTION URGENTE |
+| 8  | — | 0 époque — 8e cycle |
+| 9  | — | CORRECTIF `run_gpu_wsl.sh` — chemin dynamique (`SCRIPT_DIR`) |
+| 10 | — | En attente relance — `train.py` atteint, époque 1 incomplète |
+| 11 | — | CORRECTIF `batch_size=16→8` — relance requise |
+| 12 | — | EN ATTENTE RELANCE — batch=8 confirmé, 0 époque |
+| 13 | — | EN ATTENTE RELANCE — `train.py` confirmé dans dépôt, correctifs prêts |
+| 14 | 2026-05-22 | EN ATTENTE RELANCE — situation inchangée, correctifs prêts dans le dépôt |
+| **15** | **2026-05-22** | **EN ATTENTE RELANCE — 15e cycle consécutif sans progression** |
