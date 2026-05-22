@@ -1,6 +1,6 @@
 # Rapport de surveillance — 2026-05-22
 
-## État : DÉMARRAGE — BLOCAGE ÉPOQUE 1 (12e cycle)
+## État : DÉMARRAGE — BLOCAGE ÉPOQUE 1 (13e cycle)
 - Époque : 0/50 (aucune époque complète enregistrée dans `training_log.csv`)
 - Meilleure val IoU panneaux : N/A
 - Meilleure val loss : N/A
@@ -13,45 +13,45 @@
 - Masque : 34 445 277 px panneaux / 315 627 685 total (**10.9%**)
 - Tuiles : 3 687 brutes → 5 886 oversamplées (train), 921 (val)
 - Modèle : Fast SCNN v2 — 1 901 450 params (7.25 MB)
-- Hyperparamètres log actuel : `lr=0.0001`, `panel_weight=15.0`, `batch=16` (run AVANT fix)
-- **Script `run_gpu_wsl.sh` corrigé** : `batch_size=8` depuis cycle 11 ✓
+- Hyperparamètres log actuel : `lr=0.0001`, `panel_weight=15.0`, `batch=16` (log PRÉ-fix)
+- **Script `run_gpu_wsl.sh` corrigé** : `batch_size=8` + `SCRIPT_DIR` depuis cycle 11 ✓
 
-## Diagnostic cycle 12
+## Diagnostic cycle 13
 
-### Avancée vs cycle 11
+### Nouveauté vs cycle 12
 Aucun progrès dans `training_log.csv` — fichier toujours à **0 octet**.
-`train_log.txt` (347 lignes) se termine identiquement à `Epoch 1/50`.
+`train_log.txt` (347 lignes) se termine identiquement à `Epoch 1/50` — inchangé.
 
-### Analyse du blocage
-Le `train_log.txt` actuel indique `batch=16` et `steps/epoch~367`, confirmant que le log
-correspond au run **AVANT** le correctif `batch_size=8` du cycle 11.
-Le script `run_gpu_wsl.sh` contient maintenant `--batch_size 8` (vérifié ce cycle).
+### Confirmation : `train.py` présent dans le dépôt git
+**Bonne nouvelle** : `train.py` est bien présent à la racine du dépôt (confirmé ce cycle).
+L'erreur `python3: can't open file '/home/solar/train.py'` dans `train_log.txt.err`
+est un **artefact d'un ancien run** (avant le fix SCRIPT_DIR du cycle 9) où le script
+était appelé depuis `/home/solar/` sans `cd` vers le répertoire du projet.
 
-**La machine WSL2 n'a pas encore relancé `run_gpu_wsl.sh` après le `git pull` du cycle 11.**
+Le `run_gpu_wsl.sh` actuel règle les deux problèmes :
+- `SCRIPT_DIR` → `cd "$SCRIPT_DIR"` → `python3 train.py` trouve bien `train.py` ✓
+- `batch_size=8` (au lieu de 16) → VRAM ~4.8 GB (largement sous 13.7 GB) ✓
+
+### Racine du blocage persistant
+**La machine WSL2 n'a pas encore exécuté `git pull && bash run_gpu_wsl.sh`** depuis le cycle 11.
+Les deux correctifs sont dans le dépôt mais pas encore appliqués sur la machine de production.
 
 ### Calcul d'impact batch=8 vs batch=16
 | Paramètre | batch=16 (crashé) | batch=8 (correctif) |
 |---|---|---|
 | Steps/époque | ~368 | ~736 |
-| Panel tiles/batch | 8.0 | **4.0** |
 | Mémoire GPU (activations) | ~9.6 GB | ~4.8 GB |
 | Temps/époque estimé | ~3 min | ~5–7 min |
 | ETA 50 époques | ~2.5h | ~4–6h |
 
-Avec batch=8, les activations restent sous ~5 GB → large marge sur 13.7 GB VRAM.
-
-### Alerte persistante — overfitting run précédent (`patisen/`, 200 époques)
-La val_panel_iou n'a jamais dépassé **19.7%** en 200 époques (train_iou : 90.2%).
-Cause probable : **split spatial manquant** (tuiles train/val adjacentes → fuite de données).
-Le run `patisen_gpu/` intègre `panel_weight=15` et `panel_oversample=4` pour corriger le
-biais de classe, mais la question du split spatial reste critique à surveiller.
+Avec batch=8, large marge sur 13.7 GB VRAM → aucun risque OOM attendu.
 
 ## Historique (10 dernières époques enregistrées)
 | Époque | val_loss | val_panel_iou |
 |--------|----------|---------------|
 | —      | —        | —             |
 
-*Aucune époque complète depuis 12 cycles de surveillance consécutifs.*
+*Aucune époque complète depuis 13 cycles de surveillance consécutifs.*
 
 ---
 
@@ -62,9 +62,9 @@ biais de classe, mais la question du split spatial reste critique à surveiller.
 **Recommandation : NE PAS intégrer Malicounda maintenant — attendre ≥ 10 époques Patisen-GPU.**
 
 Raisons :
-1. **Blocage non résolu** : relancer une session multi-site (9.4 GB) sans baseline stable aggrave le risque
+1. **Blocage non résolu** : lancer un entraînement multi-site (9.4 GB) sans baseline stable aggrave le risque de crash
 2. **Aucune val_iou connue** : impossible de mesurer l'apport de Malicounda sans référence Patisen
-3. **Résolution hétérogène** : 1.7 cm/px (Malicounda) vs 3 cm/px (Patisen) → tuile 512 px = 8.7 m×8.7 m vs 15.4 m×15.4 m. Les panneaux apparaissent ×1.76 plus grands à Malicounda. Un `tile_size=256` ou une normalisation d'échelle sera nécessaire
+3. **Résolution hétérogène** : 1.7 cm/px (Malicounda) vs 3 cm/px (Patisen). Tuile 512 px = 8.7 m×8.7 m à Malicounda vs 15.4 m×15.4 m à Patisen. Les panneaux apparaissent ×1.76 plus grands — un `tile_size=256` ou une normalisation d'échelle sera nécessaire pour éviter le biais d'échelle
 
 **Commande multi-site (à lancer APRÈS ≥ 10 époques Patisen-GPU fonctionnelles) :**
 ```bash
@@ -87,10 +87,10 @@ Décision conditionnelle à appliquer dès l'époque 10 :
 | val IoU < 0.50 | **Escalader vers U-Net + ResNet50 ImageNet** multi-site (commande ci-dessous) |
 | val IoU stagne ≥ 5 époques | Réduire LR × 0.5 ou escalader vers U-Net |
 
-**AVERTISSEMENT** : si val_iou plafonne à ~19–20% comme lors du run `patisen/`, ce n'est
-pas un problème de capacité modèle mais un **problème de split de données** (tuiles adjacentes
-partagées entre train et val). Vérifier que `train.py` utilise un split spatial par blocs
-géographiques disjoints, pas un split aléatoire.
+**AVERTISSEMENT** : si val_iou plafonne à ~19–20% comme lors du run `patisen/` (200 époques),
+ce n'est pas un problème de capacité modèle mais un **problème de split de données**
+(tuiles adjacentes partagées entre train et val → fuite spatiale). Vérifier que `train.py`
+utilise un split spatial par blocs géographiques disjoints, pas un split aléatoire par tuile.
 
 **Commande U-Net de secours :**
 ```bash
@@ -109,43 +109,44 @@ python3 train.py \
 |---|---|---|
 | `batch_size` | **8** (corrigé cycle 11) | OK. Si OOM persiste → réduire à **4** |
 | `panel_weight` | 15.0 | Maintenir. Augmenter à **20–25** si val IoU < 0.40 après époque 10 |
-| `panel_oversample` | 4 | OK (4.0 panel/batch avec batch=8). Augmenter à **6–8** si IoU stagne |
+| `panel_oversample` | 4 | OK (4.0 panel tiles/batch avec batch=8). Augmenter à **6–8** si IoU stagne |
 | `tile_size` | 512 px | 15.4 m×15.4 m à Patisen. Correct. Envisager 256 px pour Malicounda (1.7 cm/px) |
 | `lr` | 0.0001 | Correct. Ajouter `ReduceLROnPlateau(patience=5)` si plateau détecté |
 | `stride` | 256 (overlap 50%) | Correct. |
 
-**Action prioritaire sur WSL2** :
+**Action prioritaire sur WSL2 (CRITIQUE — 13e cycle sans démarrage) :**
 ```bash
 cd /home/solar/digitalize-panels-solar
 git pull origin main
-bash run_gpu_wsl.sh \
+nohup bash run_gpu_wsl.sh \
   > trained_models/patisen_gpu/train_log.txt \
   2> trained_models/patisen_gpu/train_log.txt.err &
 echo "PID=$!"
-# Vérifier après 5 min
-sleep 300 && tail -5 trained_models/patisen_gpu/train_log.txt
-cat trained_models/patisen_gpu/train_log.txt.err
+# Vérifier absence d'OOM après 3 min
+sleep 180 && cat trained_models/patisen_gpu/train_log.txt.err
+# Vérifier époque 1 complète après 30 min
+sleep 1800 && head -3 trained_models/patisen_gpu/training_log.csv
 ```
 
-Si le `.err` contient `OOM` ou `ResourceExhausted` → réduire à `batch_size=4`.
+Si le `.err` contient `OOM` ou `ResourceExhausted` → réduire à `batch_size=4` dans `run_gpu_wsl.sh`.
 
 ---
 
 ## Décision
 
-**12e cycle — EN ATTENTE DE RELANCE — batch_size=8 confirmé dans `run_gpu_wsl.sh`.**
+**13e cycle — EN ATTENTE DE RELANCE — correctifs batch=8 + SCRIPT_DIR confirmés dans le dépôt.**
 
-Actions réalisées ce cycle :
-- `training_log.csv` : **0 octet** — époque 1 toujours non complétée ✗
-- `run_gpu_wsl.sh` : `batch_size=8` confirmé (fix cycle 11 actif) ✓
-- Log actuel (`batch=16`) confirme crash pré-fix ✓
-- Alerte split spatial maintenue ✓
+Diagnostic consolidé :
+- `training_log.csv` : **0 octet** — 0 époque complète (13e cycle consécutif) ✗
+- `train_log.txt` : modèle chargé, tuiles générées, `Epoch 1/50` amorcée, jamais complétée ✗
+- `train_log.txt.err` : erreur `/home/solar/train.py` = **artefact pré-fix (cycle 9)** — non bloquante pour le run actuel ✓
+- `train.py` : **présent dans le dépôt git** (confirmé cycle 13) ✓
+- `run_gpu_wsl.sh` : `SCRIPT_DIR` + `batch_size=8` → prêt à l'emploi ✓
 
-Action requise sur la machine WSL2 :
-1. `git pull origin main` pour récupérer le correctif `batch_size=8`
-2. Relancer `run_gpu_wsl.sh` avec redirection stdout + stderr
-3. Vérifier après **5 min** : `cat trained_models/patisen_gpu/train_log.txt.err` (OOM ?)
-4. Vérifier après **30 min** : `head -2 trained_models/patisen_gpu/training_log.csv` (époque 1 ?)
+**Action requise (unique) sur la machine WSL2 :**
+```
+git pull origin main && nohup bash run_gpu_wsl.sh > ... &
+```
 
 ---
 
@@ -164,4 +165,5 @@ Action requise sur la machine WSL2 :
 | 9  | CORRECTIF `run_gpu_wsl.sh` — chemin dynamique (`SCRIPT_DIR`) |
 | 10 | En attente relance — `train.py` atteint, époque 1 incomplète |
 | 11 | CORRECTIF `batch_size=16→8` — relance requise |
-| **12** | **EN ATTENTE RELANCE — batch=8 confirmé, 0 époque (ce cycle)** |
+| 12 | EN ATTENTE RELANCE — batch=8 confirmé, 0 époque |
+| **13** | **EN ATTENTE RELANCE — `train.py` confirmé dans dépôt, correctifs prêts** |
