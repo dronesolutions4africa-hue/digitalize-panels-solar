@@ -1,6 +1,6 @@
 # Rapport de surveillance — 2026-05-23
 
-## État : DÉMARRAGE — BLOCAGE ÉPOQUE 1 (16e cycle)
+## État : DÉMARRAGE — BLOCAGE ÉPOQUE 1 (17e cycle)
 - Époque : 0/50 (aucune époque complète enregistrée dans `training_log.csv`)
 - Meilleure val IoU panneaux : N/A
 - Meilleure val loss : N/A
@@ -15,20 +15,20 @@ Entraînement démarré, en attente de données.
 - Masque : 34 445 277 px panneaux / 315 627 685 total (**10.9%**)
 - Tuiles : 3 687 brutes → 5 886 oversamplées (train), 921 (val)
 - Modèle : Fast SCNN v2 — 1 901 450 params (7.25 MB)
-- Hyperparamètres actifs au dernier run : `lr=0.0001`, `panel_weight=15.0`, **`batch_size=16`** (correctif batch=8 non encore appliqué sur la machine)
+- Hyperparamètres actifs au dernier run : `lr=0.0001`, `panel_weight=15.0`, **`batch_size=16`** (correctif batch=8 dans le dépôt mais non appliqué sur la machine)
 
-## Diagnostic cycle 16
+## Diagnostic cycle 17
 
-### Situation vs cycle 15
-**Aucun progrès détecté** — fichiers identiques au cycle 15 :
+### Situation vs cycle 16
+**Aucun progrès détecté** — fichiers identiques au cycle 16 :
 - `training_log.csv` : **0 octet** (0 époque complète)
 - `train_log.txt` (347 lignes) : se termine à `[Train] epochs=50  batch=16  steps/epoch~367` puis `Epoch 1/50` — **batch=16 confirme que la machine n'a pas encore appliqué le correctif batch=8**
 - `train_log.txt.err` : `python3: can't open file '/home/solar/train.py': [Errno 2] No such file or directory` (artefact d'une tentative antérieure à chemin erroné)
 
 ### Racine du blocage
-Le run actuel a démarré avec `batch=16`, ce qui a vraisemblablement causé un OOM silencieux (RTX A4500 13.7 GB, activations ~9.6 GB pour batch=16 + overhead). L'époque 1 ne s'est jamais terminée, donc `training_log.csv` reste vide.
+Le run actuel tourne avec `batch=16`, causant vraisemblablement un OOM silencieux (RTX A4500 13.7 GB, activations ~9.6 GB pour batch=16 + overhead). L'époque 1 ne se termine jamais, `training_log.csv` reste vide.
 
-**Les correctifs sont dans le dépôt depuis le cycle 11 (batch_size 16→8 + SCRIPT_DIR) mais la machine WSL2 n'a pas encore fait `git pull && bash run_gpu_wsl.sh`.**
+**Le dépôt contient les correctifs depuis le cycle 11 (`batch_size 16→8` + `SCRIPT_DIR`) — la machine WSL2 n'a pas encore exécuté `git pull && bash run_gpu_wsl.sh`.**
 
 ### Calcul mémoire GPU
 | batch_size | Mémoire activations (estimée) | Statut |
@@ -42,7 +42,7 @@ Le run actuel a démarré avec `batch=16`, ce qui a vraisemblablement causé un 
 |--------|----------|---------------|
 | —      | —        | —             |
 
-*Aucune époque complète depuis 16 cycles de surveillance consécutifs.*
+*Aucune époque complète depuis 17 cycles de surveillance consécutifs.*
 
 ---
 
@@ -55,7 +55,7 @@ Le run actuel a démarré avec `batch=16`, ce qui a vraisemblablement causé un 
 Raisons :
 1. **Blocage non résolu** : lancer un entraînement multi-site (9.4 GB) sans baseline stable aggrave le risque de crash
 2. **Aucune val_iou connue** : impossible de mesurer l'apport de Malicounda sans référence Patisen
-3. **Résolution hétérogène** : 1.7 cm/px (Malicounda) vs 3 cm/px (Patisen). Tuile 512 px = 8.7 m×8.7 m à Malicounda vs 15.4 m×15.4 m à Patisen. Les panneaux apparaissent ×1.76 plus grands — prévoir `tile_size=256` ou une normalisation d'échelle pour éviter un biais de résolution
+3. **Résolution hétérogène** : 1.7 cm/px (Malicounda) vs 3 cm/px (Patisen). Tuile 512 px = 8.7 m×8.7 m à Malicounda vs 15.4 m×15.4 m à Patisen. Les panneaux apparaissent ×1.76 plus grands — prévoir `tile_size=256` ou normalisation d'échelle pour Malicounda
 
 **Commande multi-site (à lancer APRÈS ≥ 10 époques Patisen-GPU fonctionnelles) :**
 ```bash
@@ -96,7 +96,7 @@ python3 train.py \
 | `batch_size` | **16** (en cours) → **8** (correctif à appliquer) | Appliquer le correctif batch=8 immédiatement |
 | `panel_weight` | 15.0 | Maintenir. Augmenter à **20–25** si val IoU < 0.40 après époque 10 |
 | `panel_oversample` | 4 | OK. Augmenter à **6–8** si IoU stagne après époque 15 |
-| `tile_size` | 512 px (15.4 m×15.4 m à Patisen) | Correct pour Patisen. Envisager 256 px pour Malicounda (1.7 cm/px, 8.7 m×8.7 m) |
+| `tile_size` | 512 px (15.4 m×15.4 m à Patisen) | Correct pour Patisen. Envisager 256 px pour Malicounda (1.7 cm/px → 8.7 m×8.7 m) |
 | `lr` | 0.0001 | Correct. Ajouter `ReduceLROnPlateau(patience=5)` si plateau détecté |
 | `stride` | 256 (overlap 50%) | Correct |
 
@@ -104,7 +104,7 @@ python3 train.py \
 
 ## Décision
 
-**16e cycle — EN ATTENTE DE RELANCE — correctifs batch=8 + SCRIPT_DIR confirmés dans le dépôt depuis cycle 11.**
+**17e cycle — EN ATTENTE DE RELANCE — correctifs batch=8 + SCRIPT_DIR confirmés dans le dépôt depuis cycle 11.**
 
 **Action requise (unique) sur la machine WSL2 :**
 ```bash
@@ -136,4 +136,5 @@ Si `.err` contient `OOM` ou `ResourceExhausted` → réduire à `batch_size=4` d
 | 13 | — | EN ATTENTE RELANCE — `train.py` confirmé dans dépôt |
 | 14 | 2026-05-22 | EN ATTENTE RELANCE — situation inchangée |
 | 15 | 2026-05-22 | EN ATTENTE RELANCE — 15e cycle sans progression |
-| **16** | **2026-05-23** | **EN ATTENTE RELANCE — batch=16 confirmé dans log (correctif non appliqué)** |
+| 16 | 2026-05-23 | EN ATTENTE RELANCE — batch=16 confirmé dans log (correctif non appliqué) |
+| **17** | **2026-05-23** | **EN ATTENTE RELANCE — situation identique au cycle 16, correctifs toujours non appliqués sur WSL2** |
