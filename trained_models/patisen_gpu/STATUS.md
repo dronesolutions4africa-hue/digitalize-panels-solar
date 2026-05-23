@@ -1,49 +1,48 @@
-# Rapport de surveillance — 2026-05-22
+# Rapport de surveillance — 2026-05-23
 
-## État : DÉMARRAGE — BLOCAGE ÉPOQUE 1 (15e cycle)
+## État : DÉMARRAGE — BLOCAGE ÉPOQUE 1 (16e cycle)
 - Époque : 0/50 (aucune époque complète enregistrée dans `training_log.csv`)
 - Meilleure val IoU panneaux : N/A
 - Meilleure val loss : N/A
 - Tendance (5 dernières époques) : N/A (aucune donnée)
 - ETA estimée : inconnue — époque 1 toujours non complétée
 
+Entraînement démarré, en attente de données.
+
 ## Contexte du run GPU (données du log actuel)
 - GPU : NVIDIA RTX A4500 Laptop (13.7 GB VRAM) — `cuda_malloc_async`
-- Données chargées : `Orthomosaic_Patisen.tif` (18 695×16 883 px, chargé en 22.5s)
+- Données chargées : `Orthomosaic_Patisen.tif` (18 695×16 883 px)
 - Masque : 34 445 277 px panneaux / 315 627 685 total (**10.9%**)
 - Tuiles : 3 687 brutes → 5 886 oversamplées (train), 921 (val)
 - Modèle : Fast SCNN v2 — 1 901 450 params (7.25 MB)
-- Hyperparamètres actifs : `lr=0.0001`, `panel_weight=15.0`, `batch_size=8`
-- **`run_gpu_wsl.sh`** : `SCRIPT_DIR` + `batch_size=8` → correctifs dans le dépôt ✓
-- **`train.py`** : présent à la racine du dépôt ✓
+- Hyperparamètres actifs au dernier run : `lr=0.0001`, `panel_weight=15.0`, **`batch_size=16`** (correctif batch=8 non encore appliqué sur la machine)
 
-## Diagnostic cycle 15
+## Diagnostic cycle 16
 
-### Situation vs cycle 14
-**Aucun progrès détecté** — fichiers identiques au cycle 14 :
+### Situation vs cycle 15
+**Aucun progrès détecté** — fichiers identiques au cycle 15 :
 - `training_log.csv` : **0 octet** (0 époque complète)
-- `train_log.txt` (347 lignes) : se termine à `Epoch 1/50` — inchangé depuis cycle 10
-- `train_log.txt.err` : erreur `python3: can't open file '/home/solar/train.py': [Errno 2] No such file or directory` (artefact pré-fix, non bloquant pour le run actuel)
+- `train_log.txt` (347 lignes) : se termine à `[Train] epochs=50  batch=16  steps/epoch~367` puis `Epoch 1/50` — **batch=16 confirme que la machine n'a pas encore appliqué le correctif batch=8**
+- `train_log.txt.err` : `python3: can't open file '/home/solar/train.py': [Errno 2] No such file or directory` (artefact d'une tentative antérieure à chemin erroné)
 
-### Racine du blocage persistante
-**La machine WSL2 n'a toujours pas exécuté `git pull && bash run_gpu_wsl.sh`** depuis que les correctifs ont été intégrés (cycle 11). Les deux correctifs sont dans le dépôt depuis 4 cycles mais **pas encore appliqués sur la machine de production**.
+### Racine du blocage
+Le run actuel a démarré avec `batch=16`, ce qui a vraisemblablement causé un OOM silencieux (RTX A4500 13.7 GB, activations ~9.6 GB pour batch=16 + overhead). L'époque 1 ne s'est jamais terminée, donc `training_log.csv` reste vide.
 
-### Calcul d'impact batch=8 vs batch=16
-| Paramètre | batch=16 (crashé) | batch=8 (correctif) |
+**Les correctifs sont dans le dépôt depuis le cycle 11 (batch_size 16→8 + SCRIPT_DIR) mais la machine WSL2 n'a pas encore fait `git pull && bash run_gpu_wsl.sh`.**
+
+### Calcul mémoire GPU
+| batch_size | Mémoire activations (estimée) | Statut |
 |---|---|---|
-| Steps/époque | ~368 | ~736 |
-| Mémoire GPU (activations) | ~9.6 GB | ~4.8 GB |
-| Temps/époque estimé | ~3 min | ~5–7 min |
-| ETA 50 époques | ~2.5h | ~4–6h |
-
-Avec batch=8, large marge sur 13.7 GB VRAM → aucun risque OOM attendu.
+| 16 | ~9.6 GB | RISQUE OOM sur 13.7 GB VRAM |
+| **8** | ~4.8 GB | SÛRE — marge 9 GB |
+| 4 | ~2.4 GB | SÛRE si OOM persiste avec batch=8 |
 
 ## Historique (10 dernières époques enregistrées)
 | Époque | val_loss | val_panel_iou |
 |--------|----------|---------------|
 | —      | —        | —             |
 
-*Aucune époque complète depuis 15 cycles de surveillance consécutifs.*
+*Aucune époque complète depuis 16 cycles de surveillance consécutifs.*
 
 ---
 
@@ -51,12 +50,12 @@ Avec batch=8, large marge sur 13.7 GB VRAM → aucun risque OOM attendu.
 
 ### A. Données Malicounda
 
-**Recommandation : NE PAS intégrer Malicounda maintenant — attendre ≥ 10 époques Patisen-GPU.**
+**Recommandation : NE PAS intégrer Malicounda maintenant — attendre ≥ 10 époques Patisen-GPU fonctionnelles.**
 
 Raisons :
 1. **Blocage non résolu** : lancer un entraînement multi-site (9.4 GB) sans baseline stable aggrave le risque de crash
 2. **Aucune val_iou connue** : impossible de mesurer l'apport de Malicounda sans référence Patisen
-3. **Résolution hétérogène** : 1.7 cm/px (Malicounda) vs 3 cm/px (Patisen). Tuile 512 px = 8.7 m×8.7 m à Malicounda vs 15.4 m×15.4 m à Patisen. Les panneaux apparaissent ×1.76 plus grands — un `tile_size=256` ou une normalisation d'échelle sera nécessaire pour éviter le biais d'échelle
+3. **Résolution hétérogène** : 1.7 cm/px (Malicounda) vs 3 cm/px (Patisen). Tuile 512 px = 8.7 m×8.7 m à Malicounda vs 15.4 m×15.4 m à Patisen. Les panneaux apparaissent ×1.76 plus grands — prévoir `tile_size=256` ou une normalisation d'échelle pour éviter un biais de résolution
 
 **Commande multi-site (à lancer APRÈS ≥ 10 époques Patisen-GPU fonctionnelles) :**
 ```bash
@@ -79,11 +78,6 @@ Décision conditionnelle à appliquer dès l'époque 10 :
 | val IoU < 0.50 | **Escalader vers U-Net + ResNet50 ImageNet** multi-site (commande ci-dessous) |
 | val IoU stagne ≥ 5 époques | Réduire LR × 0.5 ou escalader vers U-Net |
 
-**AVERTISSEMENT** : si val_iou plafonne à ~19–20% comme lors du run `patisen/` (200 époques),
-ce n'est pas un problème de capacité modèle mais un **problème de split de données**
-(tuiles adjacentes partagées entre train et val → fuite spatiale). Vérifier que `train.py`
-utilise un split spatial par blocs géographiques disjoints, pas un split aléatoire par tuile.
-
 **Commande U-Net de secours :**
 ```bash
 python3 train.py \
@@ -99,20 +93,18 @@ python3 train.py \
 
 | Paramètre | Valeur actuelle | Recommandation |
 |---|---|---|
-| `batch_size` | **8** (corrigé cycle 11) | OK. Si OOM persiste → réduire à **4** |
+| `batch_size` | **16** (en cours) → **8** (correctif à appliquer) | Appliquer le correctif batch=8 immédiatement |
 | `panel_weight` | 15.0 | Maintenir. Augmenter à **20–25** si val IoU < 0.40 après époque 10 |
 | `panel_oversample` | 4 | OK. Augmenter à **6–8** si IoU stagne après époque 15 |
-| `tile_size` | 512 px | 15.4 m×15.4 m à Patisen (correct). Envisager 256 px pour Malicounda (1.7 cm/px) |
+| `tile_size` | 512 px (15.4 m×15.4 m à Patisen) | Correct pour Patisen. Envisager 256 px pour Malicounda (1.7 cm/px, 8.7 m×8.7 m) |
 | `lr` | 0.0001 | Correct. Ajouter `ReduceLROnPlateau(patience=5)` si plateau détecté |
-| `stride` | 256 (overlap 50%) | Correct. |
+| `stride` | 256 (overlap 50%) | Correct |
 
 ---
 
 ## Décision
 
-**15e cycle — EN ATTENTE DE RELANCE — correctifs batch=8 + SCRIPT_DIR confirmés dans le dépôt.**
-
-Entraînement démarré, en attente de données (0 époque complète depuis 15 cycles).
+**16e cycle — EN ATTENTE DE RELANCE — correctifs batch=8 + SCRIPT_DIR confirmés dans le dépôt depuis cycle 11.**
 
 **Action requise (unique) sur la machine WSL2 :**
 ```bash
@@ -136,18 +128,12 @@ Si `.err` contient `OOM` ou `ResourceExhausted` → réduire à `batch_size=4` d
 
 | Cycle | Date | État |
 |-------|------|------|
-| 1  | — | training started — 0 époque |
-| 2  | — | 0 époque, démarrage en cours |
-| 3  | — | 0 époque, alerte délai 24h |
-| 4  | — | 0 époque, crash confirmé |
-| 5  | — | 0 époque, intervention requise |
-| 6  | — | 0 époque — BLOCAGE TOTAL |
-| 7  | — | 0 époque — INTERVENTION URGENTE |
-| 8  | — | 0 époque — 8e cycle |
-| 9  | — | CORRECTIF `run_gpu_wsl.sh` — chemin dynamique (`SCRIPT_DIR`) |
+| 1–8   | — | 0 époque, démarrage/crash |
+| 9  | — | CORRECTIF `run_gpu_wsl.sh` chemin dynamique (`SCRIPT_DIR`) |
 | 10 | — | En attente relance — `train.py` atteint, époque 1 incomplète |
-| 11 | — | CORRECTIF `batch_size=16→8` — relance requise |
+| 11 | — | CORRECTIF `batch_size=16→8` dans `run_gpu_wsl.sh` |
 | 12 | — | EN ATTENTE RELANCE — batch=8 confirmé, 0 époque |
-| 13 | — | EN ATTENTE RELANCE — `train.py` confirmé dans dépôt, correctifs prêts |
-| 14 | 2026-05-22 | EN ATTENTE RELANCE — situation inchangée, correctifs prêts dans le dépôt |
-| **15** | **2026-05-22** | **EN ATTENTE RELANCE — 15e cycle consécutif sans progression** |
+| 13 | — | EN ATTENTE RELANCE — `train.py` confirmé dans dépôt |
+| 14 | 2026-05-22 | EN ATTENTE RELANCE — situation inchangée |
+| 15 | 2026-05-22 | EN ATTENTE RELANCE — 15e cycle sans progression |
+| **16** | **2026-05-23** | **EN ATTENTE RELANCE — batch=16 confirmé dans log (correctif non appliqué)** |
