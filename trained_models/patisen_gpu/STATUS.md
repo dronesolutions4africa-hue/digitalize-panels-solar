@@ -1,6 +1,6 @@
 # Rapport de surveillance — 2026-05-26
 
-## État : DÉMARRAGE — BLOCAGE ÉPOQUE 1 (20e cycle)
+## État : DÉMARRAGE — BLOCAGE ÉPOQUE 1 (21e cycle)
 - Époque : 0/50 (aucune époque complète enregistrée dans `training_log.csv`)
 - Meilleure val IoU panneaux : N/A
 - Meilleure val loss : N/A
@@ -17,10 +17,10 @@ Entraînement démarré, en attente de données.
 - Modèle : Fast SCNN v2 — 1 901 450 params (7.25 MB)
 - Hyperparamètres actifs au dernier run : `lr=0.0001`, `panel_weight=15.0`, **`batch_size=16`** (correctif batch=8 dans le dépôt mais non appliqué sur la machine)
 
-## Diagnostic cycle 20
+## Diagnostic cycle 21
 
-### Situation vs cycle 19
-**Aucun progrès détecté — situation strictement identique au cycle 19 :**
+### Situation vs cycle 20
+**Aucun progrès détecté — situation strictement identique au cycle 20 :**
 - `training_log.csv` : **0 octet** (0 époque complète) — inchangé depuis le cycle 1
 - `train_log.txt` (347 lignes) : se termine à `[Train] epochs=50  batch=16  steps/epoch~367` puis `Epoch 1/50` — batch=16 confirme que la machine n'a pas encore appliqué le correctif batch=8
 - `train_log.txt.err` : `python3: can't open file '/home/solar/train.py': [Errno 2] No such file or directory` (artefact d'une tentative antérieure à chemin erroné)
@@ -58,7 +58,7 @@ Le run `patisen_gpu` tourne avec `batch=16`, causant vraisemblablement un OOM si
 |--------|----------|---------------|
 | —      | —        | —             |
 
-*Aucune époque complète depuis 20 cycles de surveillance consécutifs.*
+*Aucune époque complète depuis 21 cycles de surveillance consécutifs.*
 
 ---
 
@@ -124,7 +124,7 @@ python3 train.py \
 
 ## Décision
 
-**20e cycle — EN ATTENTE DE RELANCE — situation inchangée depuis le cycle 19.**
+**21e cycle — EN ATTENTE DE RELANCE — situation inchangée depuis le cycle 20.**
 
 **Conclusion stratégique** : ne pas relancer un run Patisen-seul. Appliquer batch=8 ET lancer directement le run multi-site (Patisen + Malicounda).
 
@@ -176,4 +176,5 @@ Si `.err` contient `OOM` ou `ResourceExhausted` → réduire à `batch_size=4`.
 | 17 | 2026-05-23 | EN ATTENTE RELANCE — situation identique au cycle 16 |
 | 18 | 2026-05-23 | EN ATTENTE RELANCE — ALERTE : val IoU historique 0.197/200 éps — multi-site indispensable |
 | 19 | 2026-05-26 | EN ATTENTE RELANCE — situation inchangée — correctif batch=8 non appliqué sur WSL2 |
-| **20** | **2026-05-26** | **EN ATTENTE RELANCE — situation inchangée — correctif batch=8 non appliqué sur WSL2** |
+| 20 | 2026-05-26 | EN ATTENTE RELANCE — situation inchangée — correctif batch=8 non appliqué sur WSL2 |
+| **21** | **2026-05-26** | **EN ATTENTE RELANCE — situation inchangée — correctif batch=8 non appliqué sur WSL2** |
