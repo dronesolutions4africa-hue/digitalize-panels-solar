@@ -1,6 +1,6 @@
-# Rapport de surveillance — 2026-05-23
+# Rapport de surveillance — 2026-05-26
 
-## État : DÉMARRAGE — BLOCAGE ÉPOQUE 1 (18e cycle)
+## État : DÉMARRAGE — BLOCAGE ÉPOQUE 1 (19e cycle)
 - Époque : 0/50 (aucune époque complète enregistrée dans `training_log.csv`)
 - Meilleure val IoU panneaux : N/A
 - Meilleure val loss : N/A
@@ -17,11 +17,11 @@ Entraînement démarré, en attente de données.
 - Modèle : Fast SCNN v2 — 1 901 450 params (7.25 MB)
 - Hyperparamètres actifs au dernier run : `lr=0.0001`, `panel_weight=15.0`, **`batch_size=16`** (correctif batch=8 dans le dépôt mais non appliqué sur la machine)
 
-## Diagnostic cycle 18
+## Diagnostic cycle 19
 
-### Situation vs cycle 17
-**Aucun progrès détecté** — fichiers identiques au cycle 17 :
-- `training_log.csv` : **0 octet** (0 époque complète)
+### Situation vs cycle 18
+**Aucun progrès détecté — situation strictement identique au cycle 18 :**
+- `training_log.csv` : **0 octet** (0 époque complète) — inchangé depuis le cycle 1
 - `train_log.txt` (347 lignes) : se termine à `[Train] epochs=50  batch=16  steps/epoch~367` puis `Epoch 1/50` — batch=16 confirme que la machine n'a pas encore appliqué le correctif batch=8
 - `train_log.txt.err` : `python3: can't open file '/home/solar/train.py': [Errno 2] No such file or directory` (artefact d'une tentative antérieure à chemin erroné)
 
@@ -30,6 +30,8 @@ Le répertoire `trained_models/patisen/training_log.csv` révèle un problème d
 
 | Époque | train_panel_iou | val_panel_iou | val_loss |
 |--------|-----------------|---------------|----------|
+| 0      | 0.7251          | 0.1893        | 1.7164   |
+| 1      | 0.8125          | 0.1951        | 1.1170   |
 | 185    | 0.9023          | 0.1974        | 0.7873   |
 | 190    | 0.9064          | 0.1974        | 0.7908   |
 | 195    | 0.9051          | 0.1974        | 0.7849   |
@@ -56,7 +58,7 @@ Le run `patisen_gpu` tourne avec `batch=16`, causant vraisemblablement un OOM si
 |--------|----------|---------------|
 | —      | —        | —             |
 
-*Aucune époque complète depuis 18 cycles de surveillance consécutifs.*
+*Aucune époque complète depuis 19 cycles de surveillance consécutifs.*
 
 ---
 
@@ -79,7 +81,7 @@ python3 train.py \
   --ortho Data/Orthomosaic_Patisen.tif Malicounda/ortho.tif \
   --shp Data/Panneaux_Patisen.shp Malicounda/Lim_panneaux.shp \
   --tile_size 512 --stride 256 --batch_size 8 --epochs 50 \
-  --panel_oversample 4 --max_tiles_per_site 5000 \
+  --panel_oversample 6 --panel_weight 20 --max_tiles_per_site 5000 \
   --output_dir trained_models/patisen_malicounda_gpu
 ```
 
@@ -122,7 +124,7 @@ python3 train.py \
 
 ## Décision
 
-**18e cycle — EN ATTENTE DE RELANCE — diagnostic enrichi par l'analyse des 200 époques historiques.**
+**19e cycle — EN ATTENTE DE RELANCE — situation inchangée depuis le cycle 18.**
 
 **Conclusion stratégique** : ne pas relancer un run Patisen-seul. Appliquer batch=8 ET lancer directement le run multi-site (Patisen + Malicounda).
 
@@ -172,4 +174,5 @@ Si `.err` contient `OOM` ou `ResourceExhausted` → réduire à `batch_size=4`.
 | 15 | 2026-05-22 | EN ATTENTE RELANCE — 15e cycle sans progression |
 | 16 | 2026-05-23 | EN ATTENTE RELANCE — batch=16 confirmé dans log (correctif non appliqué) |
 | 17 | 2026-05-23 | EN ATTENTE RELANCE — situation identique au cycle 16 |
-| **18** | **2026-05-23** | **EN ATTENTE RELANCE — ALERTE : val IoU historique 0.197/200 éps — multi-site indispensable** |
+| 18 | 2026-05-23 | EN ATTENTE RELANCE — ALERTE : val IoU historique 0.197/200 éps — multi-site indispensable |
+| **19** | **2026-05-26** | **EN ATTENTE RELANCE — situation inchangée — correctif batch=8 non appliqué sur WSL2** |
