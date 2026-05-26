@@ -1,6 +1,6 @@
 # Rapport de surveillance — 2026-05-26
 
-## État : DÉMARRAGE — BLOCAGE ÉPOQUE 1 (21e cycle)
+## État : DÉMARRAGE — BLOCAGE ÉPOQUE 1 (22e cycle)
 - Époque : 0/50 (aucune époque complète enregistrée dans `training_log.csv`)
 - Meilleure val IoU panneaux : N/A
 - Meilleure val loss : N/A
@@ -19,8 +19,8 @@ Entraînement démarré, en attente de données.
 
 ## Diagnostic cycle 21
 
-### Situation vs cycle 20
-**Aucun progrès détecté — situation strictement identique au cycle 20 :**
+### Situation vs cycle 21
+**Aucun progrès détecté — situation strictement identique au cycle 21 :**
 - `training_log.csv` : **0 octet** (0 époque complète) — inchangé depuis le cycle 1
 - `train_log.txt` (347 lignes) : se termine à `[Train] epochs=50  batch=16  steps/epoch~367` puis `Epoch 1/50` — batch=16 confirme que la machine n'a pas encore appliqué le correctif batch=8
 - `train_log.txt.err` : `python3: can't open file '/home/solar/train.py': [Errno 2] No such file or directory` (artefact d'une tentative antérieure à chemin erroné)
@@ -58,7 +58,7 @@ Le run `patisen_gpu` tourne avec `batch=16`, causant vraisemblablement un OOM si
 |--------|----------|---------------|
 | —      | —        | —             |
 
-*Aucune époque complète depuis 21 cycles de surveillance consécutifs.*
+*Aucune époque complète depuis 22 cycles de surveillance consécutifs.*
 
 ---
 
@@ -124,7 +124,7 @@ python3 train.py \
 
 ## Décision
 
-**21e cycle — EN ATTENTE DE RELANCE — situation inchangée depuis le cycle 20.**
+**22e cycle — EN ATTENTE DE RELANCE — situation inchangée depuis le cycle 21.**
 
 **Conclusion stratégique** : ne pas relancer un run Patisen-seul. Appliquer batch=8 ET lancer directement le run multi-site (Patisen + Malicounda).
 
@@ -177,4 +177,5 @@ Si `.err` contient `OOM` ou `ResourceExhausted` → réduire à `batch_size=4`.
 | 18 | 2026-05-23 | EN ATTENTE RELANCE — ALERTE : val IoU historique 0.197/200 éps — multi-site indispensable |
 | 19 | 2026-05-26 | EN ATTENTE RELANCE — situation inchangée — correctif batch=8 non appliqué sur WSL2 |
 | 20 | 2026-05-26 | EN ATTENTE RELANCE — situation inchangée — correctif batch=8 non appliqué sur WSL2 |
-| **21** | **2026-05-26** | **EN ATTENTE RELANCE — situation inchangée — correctif batch=8 non appliqué sur WSL2** |
+| 21 | 2026-05-26 | EN ATTENTE RELANCE — situation inchangée — correctif batch=8 non appliqué sur WSL2 |
+| **22** | **2026-05-26** | **EN ATTENTE RELANCE — situation inchangée — correctif batch=8 non appliqué sur WSL2** |
