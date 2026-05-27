@@ -11,10 +11,15 @@ while ($true) {
     $changed = git status --porcelain trained_models/ 2>$null
     if ($changed) {
         git -c user.email="ndiouryoussouph@gmail.com" -c user.name="dronesolutions4africa-hue" `
-            add trained_models/patisen_gpu/training_log.csv `
-                 trained_models/patisen_gpu/train_log.txt `
-                 trained_models/patisen_gpu/training_curves.png `
-                 trained_models/patisen_gpu/best_model.weights.h5 `
+            add trained_models/patisen_gpu/ `
+                 trained_models/patisen_malicounda_unet/training_log.csv `
+                 trained_models/patisen_malicounda_unet/train_log.txt `
+                 trained_models/patisen_malicounda_unet/training_curves.png `
+                 trained_models/patisen_malicounda_unet/best_model.weights.h5 `
+                 trained_models/patisen_malicounda_unet_v2/training_log.csv `
+                 trained_models/patisen_malicounda_unet_v2/train_log.txt `
+                 trained_models/patisen_malicounda_unet_v2/training_curves.png `
+                 trained_models/patisen_malicounda_unet_v2/best_model.weights.h5 `
                  trained_models/patisen_unet/ 2>$null
         $ts = Get-Date -Format "yyyy-MM-dd HH:mm"
         git -c user.email="ndiouryoussouph@gmail.com" -c user.name="dronesolutions4africa-hue" `

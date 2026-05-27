@@ -18,8 +18,11 @@ output/patisen/panels_viz*.tif
 output/patisen/panels_watershed_viz.tif
 output/patisen/instance_eval/instance_eval_viz.tif
 
-# Logs d'entraînement temporaires
-trained_models/patisen_gpu/train_log.err
+# Logs et poids trop volumineux pour GitHub (> 100 MB)
+trained_models/**/train_log.err
+trained_models/**/train_log.txt
+trained_models/**/*.h5
+trained_models/**/best_model.weights.h5
 
 # Fichiers système
 .DS_Store

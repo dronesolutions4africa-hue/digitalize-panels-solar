@@ -51,8 +51,10 @@ PANEL_OVERSAMPLE = 4     # repeat panel tiles N× per epoch to balance batches
 # ── CLI ───────────────────────────────────────────────────────────────────────
 def parse_args():
     p = argparse.ArgumentParser(description="Train Fast SCNN v2 on solar panels")
-    p.add_argument("--ortho",       default=ORTHO_PATH)
-    p.add_argument("--shp",         default=SHP_PATH)
+    p.add_argument("--ortho", nargs='+', default=[ORTHO_PATH],
+                   help="One or more GeoTIFF orthomosaics (one per site)")
+    p.add_argument("--shp",   nargs='+', default=[SHP_PATH],
+                   help="Matching shapefiles, one per --ortho")
     p.add_argument("--output_dir",  default=OUTPUT_DIR)
     p.add_argument("--tile_size",   type=int,   default=TILE_SIZE)
     p.add_argument("--stride",      type=int,   default=STRIDE)
@@ -64,6 +66,8 @@ def parse_args():
                    help="Loss weight for panel pixels relative to background")
     p.add_argument("--panel_oversample", type=int, default=PANEL_OVERSAMPLE,
                    help="Repeat panel tiles N× per epoch to improve batch balance")
+    p.add_argument("--max_tiles_per_site", type=int, default=0,
+                   help="Cap tiles per site (0=unlimited). Use ~5000 for very large sites like Malicounda.")
     p.add_argument("--model", default="fast_scnn_2",
                    choices=["fast_scnn_2", "unet_resnet50"],
                    help="Model architecture to train")
@@ -78,9 +82,12 @@ def parse_args():
 def setup_gpu():
     gpus = tf.config.list_physical_devices("GPU")
     if gpus:
-        for g in gpus:
-            tf.config.experimental.set_memory_growth(g, True)
-        print(f"[GPU] {len(gpus)} device(s): {[g.name for g in gpus]}")
+        # Hard cap at 85% of 16384 MB VRAM (RTX A4500) = 13926 MB
+        tf.config.set_logical_device_configuration(
+            gpus[0],
+            [tf.config.LogicalDeviceConfiguration(memory_limit=13926)]
+        )
+        print(f"[GPU] {len(gpus)} device(s): {[g.name for g in gpus]} — capped at 13926 MB (85% VRAM)")
     else:
         print("[GPU] None found — running on CPU (slow)")
     return bool(gpus)
@@ -111,6 +118,33 @@ def rasterize_labels(ortho_path: str, shp_path: str) -> np.ndarray:
     total   = height * width
     print(f"[Mask] {n_panel:,} panel px / {total:,} total ({n_panel/total*100:.1f}%)")
     return mask
+
+
+# ── Data: site loader ─────────────────────────────────────────────────────────
+_MAX_RAM_GB = 4.0  # images larger than this use windowed tile reading
+
+def load_site(ortho_path: str, shp_path: str) -> dict:
+    """Load one site. Small images (<4 GB) go fully into RAM; large ones use
+    windowed rasterio reads per tile to avoid memory exhaustion."""
+    file_gb = os.path.getsize(ortho_path) / 1e9
+    with rasterio.open(ortho_path) as src:
+        height, width, n_bands = src.height, src.width, src.count
+    print(f"       {width}×{height} px | {n_bands} bands | {file_gb:.1f} GB on disk")
+
+    mask = rasterize_labels(ortho_path, shp_path)
+
+    if file_gb <= _MAX_RAM_GB:
+        t0 = time.time()
+        with rasterio.open(ortho_path) as src:
+            bands = [1, 2, 3] if src.count >= 3 else [1, 1, 1]
+            rgb = np.moveaxis(src.read(bands), 0, -1)
+        print(f"       Loaded into RAM in {time.time()-t0:.1f}s")
+        return {'rgb': rgb, 'mask': mask, 'path': ortho_path,
+                'height': height, 'width': width}
+    else:
+        print(f"       Too large for RAM — windowed tile reading enabled")
+        return {'rgb': None, 'mask': mask, 'path': ortho_path,
+                'height': height, 'width': width}
 
 
 # ── Data: tile indices ─────────────────────────────────────────────────────────
@@ -176,21 +210,33 @@ def _augment(img, msk):
     return img, msk
 
 
-def make_dataset(rgb: np.ndarray, mask: np.ndarray,
-                 indices, tile_size: int, batch_size: int,
+def make_dataset(sites: list, indices: list, tile_size: int, batch_size: int,
                  augment: bool = False, shuffle: bool = False):
     """
-    Build a tf.data.Dataset that extracts (img, one-hot-mask) tiles on the fly
-    from the in-RAM numpy arrays `rgb` (H,W,3 uint8) and `mask` (H,W uint8).
+    Multi-site tf.data.Dataset.
+    sites  : list of dicts from load_site() — each has 'rgb' (array or None),
+             'mask' (array), 'path' (str for windowed reading).
+    indices: list of (site_id, row, col) tuples.
     """
-    rows = np.array([r for r, c in indices], dtype=np.int32)
-    cols = np.array([c for r, c in indices], dtype=np.int32)
+    site_ids = np.array([s for s, r, c in indices], dtype=np.int32)
+    rows     = np.array([r for s, r, c in indices], dtype=np.int32)
+    cols     = np.array([c for s, r, c in indices], dtype=np.int32)
 
-    def load_tile(r_tensor, c_tensor):
-        r = int(r_tensor.numpy())
-        c = int(c_tensor.numpy())
-        img = rgb[r:r+tile_size, c:c+tile_size].astype(np.float32) / 255.0
-        msk = mask[r:r+tile_size, c:c+tile_size]
+    def load_tile(sid_t, r_tensor, c_tensor):
+        sid = int(sid_t.numpy())
+        r   = int(r_tensor.numpy())
+        c   = int(c_tensor.numpy())
+        site = sites[sid]
+
+        if site['rgb'] is not None:
+            img = site['rgb'][r:r+tile_size, c:c+tile_size].astype(np.float32) / 255.0
+        else:
+            with rasterio.open(site['path']) as src:
+                bands = [1, 2, 3] if src.count >= 3 else [1, 1, 1]
+                window = rasterio.windows.Window(c, r, tile_size, tile_size)
+                img = np.moveaxis(src.read(bands, window=window), 0, -1).astype(np.float32) / 255.0
+
+        msk = site['mask'][r:r+tile_size, c:c+tile_size]
         msk_oh = np.stack(
             [(msk == 0).astype(np.float32),
              (msk == 255).astype(np.float32)],
@@ -198,13 +244,13 @@ def make_dataset(rgb: np.ndarray, mask: np.ndarray,
         )
         return img, msk_oh
 
-    def map_fn(r, c):
-        img, msk = tf.py_function(load_tile, [r, c], [tf.float32, tf.float32])
+    def map_fn(sid, r, c):
+        img, msk = tf.py_function(load_tile, [sid, r, c], [tf.float32, tf.float32])
         img.set_shape((tile_size, tile_size, 3))
         msk.set_shape((tile_size, tile_size, 2))
         return img, msk
 
-    ds = tf.data.Dataset.from_tensor_slices((rows, cols))
+    ds = tf.data.Dataset.from_tensor_slices((site_ids, rows, cols))
     if shuffle:
         ds = ds.shuffle(buffer_size=len(indices), reshuffle_each_iteration=True)
     ds = ds.map(map_fn, num_parallel_calls=tf.data.AUTOTUNE)
@@ -314,51 +360,51 @@ def main():
     os.makedirs(args.output_dir, exist_ok=True)
     setup_gpu()
 
-    # 1. Load orthomosaic into RAM (uint8 — ~950 MB for 18 695×16 883)
-    print(f"\n[Data] Loading {args.ortho} …")
-    t0 = time.time()
-    with rasterio.open(args.ortho) as src:
-        # Read RGB bands only (ignore alpha / extra bands)
-        band_indices = [1, 2, 3] if src.count >= 3 else [1, 1, 1]
-        rgb = src.read(band_indices)              # (3, H, W) uint8
-        rgb = np.moveaxis(rgb, 0, -1)            # (H, W, 3)
-        height, width = src.height, src.width
-    print(f"       {width}×{height} px loaded in {time.time()-t0:.1f}s")
+    if len(args.ortho) != len(args.shp):
+        raise ValueError(f"--ortho ({len(args.ortho)}) and --shp ({len(args.shp)}) must match")
 
-    # 2. Rasterize shapefile labels
-    print(f"\n[Data] Rasterizing {args.shp} …")
-    mask = rasterize_labels(args.ortho, args.shp)
+    # 1. Load all sites
+    sites = []
+    for i, (op, sp) in enumerate(zip(args.ortho, args.shp)):
+        print(f"\n[Site {i+1}/{len(args.ortho)}] {os.path.basename(op)}")
+        sites.append(load_site(op, sp))
 
-    # 3. Tile indices (random panel-aware split)
-    train_idx, val_idx = get_tile_indices(
-        height, width, args.tile_size, args.stride, args.val_frac, mask=mask
-    )
-
-    # Oversample panel tiles to balance each training batch
+    # 2. Tile indices per site, tagged with site_id
     import random as _random
-    panel_train = [(r, c) for r, c in train_idx
-                   if mask[r:r+args.tile_size, c:c+args.tile_size].max() > 0]
-    bg_train    = [(r, c) for r, c in train_idx
-                   if mask[r:r+args.tile_size, c:c+args.tile_size].max() == 0]
+    all_train_idx = []
+    all_val_idx   = []
+    for i, site in enumerate(sites):
+        train_i, val_i = get_tile_indices(
+            site['height'], site['width'],
+            args.tile_size, args.stride, args.val_frac, mask=site['mask']
+        )
+        if args.max_tiles_per_site > 0:
+            rng = _random.Random(42 + i)
+            if len(train_i) > args.max_tiles_per_site:
+                train_i = rng.sample(train_i, args.max_tiles_per_site)
+            n_val_cap = max(1, int(args.max_tiles_per_site * args.val_frac))
+            if len(val_i) > n_val_cap:
+                val_i = rng.sample(val_i, n_val_cap)
+        all_train_idx.extend([(i, r, c) for r, c in train_i])
+        all_val_idx.extend([(i, r, c)   for r, c in val_i])
+
+    # 3. Oversample panel tiles across all sites
+    panel_train = [(s, r, c) for s, r, c in all_train_idx
+                   if sites[s]['mask'][r:r+args.tile_size, c:c+args.tile_size].max() > 0]
+    bg_train    = [(s, r, c) for s, r, c in all_train_idx
+                   if sites[s]['mask'][r:r+args.tile_size, c:c+args.tile_size].max() == 0]
     oversampled = panel_train * args.panel_oversample + bg_train
     _random.Random(42).shuffle(oversampled)
-    print(f"[Data] Tiles — train: {len(train_idx)} raw "
+    print(f"\n[Data] {len(args.ortho)} site(s) combined — train: {len(all_train_idx)} raw "
           f"({len(panel_train)} panel × {args.panel_oversample} + {len(bg_train)} bg "
-          f"= {len(oversampled)} oversampled), val: {len(val_idx)}")
-    est_panel_per_batch = args.batch_size * len(panel_train) * args.panel_oversample / len(oversampled)
-    print(f"       Expected panel tiles/batch: {est_panel_per_batch:.1f} / {args.batch_size}")
+          f"= {len(oversampled)} oversampled), val: {len(all_val_idx)}")
+    if oversampled:
+        est = args.batch_size * len(panel_train) * args.panel_oversample / len(oversampled)
+        print(f"       Expected panel tiles/batch: {est:.1f} / {args.batch_size}")
 
     # 4. TF Datasets
-    train_ds = make_dataset(
-        rgb, mask, oversampled,
-        args.tile_size, args.batch_size,
-        augment=True, shuffle=True,
-    )
-    val_ds = make_dataset(
-        rgb, mask, val_idx,
-        args.tile_size, args.batch_size,
-        augment=False, shuffle=False,
-    )
+    train_ds = make_dataset(sites, oversampled, args.tile_size, args.batch_size, augment=True, shuffle=True)
+    val_ds   = make_dataset(sites, all_val_idx,  args.tile_size, args.batch_size, augment=False, shuffle=False)
 
     # 5. Model
     print(f"\n[Model] {args.model}  input={args.tile_size}×{args.tile_size}  "
