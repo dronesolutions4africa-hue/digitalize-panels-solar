@@ -5,7 +5,8 @@ export LD_LIBRARY_PATH=$SITE/cublas/lib:$SITE/cuda_cupti/lib:$SITE/cuda_nvrtc/li
 export TF_ENABLE_ONEDNN_OPTS=0
 export PYTHONIOENCODING=utf-8
 
-cd /mnt/c/Users/user/Downloads/solar-panels-detection-master/solar-panels-detection-master
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+cd "$SCRIPT_DIR"
 
 python3 train.py \
   --model fast_scnn_2 \
@@ -13,7 +14,7 @@ python3 train.py \
   --shp Data/Panneaux_Patisen.shp \
   --tile_size 512 \
   --stride 256 \
-  --batch_size 16 \
+  --batch_size 8 \
   --epochs 50 \
   --panel_oversample 4 \
   --output_dir trained_models/patisen_gpu
