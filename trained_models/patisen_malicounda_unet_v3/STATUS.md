@@ -17,10 +17,10 @@
 
 ## Analyse
 
-### État du run v3 (contrôle du 2026-05-28)
-- Deuxième vérification consécutive (après 2026-05-27) — **aucun nouveau fichier** dans le répertoire v3.
+### État du run v3 (contrôle du 2026-05-28 — 3ème vérification consécutive)
+- **Aucun nouveau fichier** dans le répertoire v3 depuis le premier monitoring (2026-05-27).
 - Ni `training_log.csv` ni `train_log.txt` ne sont présents → l'entraînement **n'a pas démarré** sur la machine locale, ou les fichiers ne sont pas encore committés/poussés vers le dépôt.
-- Le répertoire v3 ne contient que ce fichier `STATUS.md`.
+- Historique git : 3 commits de monitoring `epoch 0/100 val_iou=N/A` consécutifs sans progression.
 
 ### Configuration v3 (rappel)
 | Paramètre            | Valeur v3              | v2 (référence)         |
@@ -37,15 +37,41 @@
 ### Référence v2 (terminé)
 - Meilleure val_panel_iou : **0.7140** à l'époque 61 (lr=2.5e-6)
 - Run arrêté à l'époque 67 — plateau attribuable à `max_tiles_per_site=15000`
-- Dernières 5 époques v2 (63–67) : val_panel_iou oscillant entre 0.7118 et 0.7130 → **PLATEAU**
+- Dernières 5 époques v2 (63–67) : val_panel_iou entre 0.7118 et 0.7129 → **PLATEAU**
 - v3 vise **≥ 0.85** grâce aux tuiles illimitées, panel_weight=20, panel_oversample=8
+
+### Données v2 complètes (CSV — époques 15–67)
+| Époque | val_loss | val_panel_iou | LR       |
+|--------|----------|---------------|----------|
+| 15     | 0.5208   | 0.5949        | 1.00e-05 |
+| 20     | 0.4235   | 0.6596        | 1.00e-05 |
+| 27     | 0.4124   | 0.6837        | 1.00e-05 |
+| 32     | 0.4332   | 0.6900        | 1.00e-05 |
+| 40     | 0.4160   | 0.6961        | 1.00e-05 |
+| 43     | 0.4523   | 0.7004        | 5.00e-06 |
+| 47     | 0.4456   | 0.7060        | 5.00e-06 |
+| 52     | 0.4602   | 0.7075        | 5.00e-06 |
+| 57     | 0.4616   | 0.7084        | 5.00e-06 |
+| 58     | 0.4851   | 0.7064        | 2.50e-06 |
+| **61** | **0.4618** | **0.7140** | **2.50e-06** |
+| 63     | 0.4617   | 0.7126        | 2.50e-06 |
+| 65     | 0.4793   | 0.7129        | 2.50e-06 |
+| 66     | 0.4622   | 0.7122        | 2.50e-06 |
+| 67     | 0.4667   | 0.7129        | 2.50e-06 |
 
 ## Décision
 
-**L'entraînement v3 n'a toujours pas démarré sur la machine locale (WSL2).**
+**L'entraînement v3 n'a toujours pas démarré (3ème contrôle consécutif sans données).**
 
-### Actions requises (machine locale)
-1. **Vérifier que le script de lancement v3 est configuré** :
+### Actions requises URGENT (machine locale WSL2)
+
+1. **Vérifier l'état du processus Python** :
+   ```bash
+   ps aux | grep python
+   nvidia-smi  # GPU occupé ?
+   ```
+
+2. **Vérifier que le script v3 est lancé avec les bons paramètres** :
    ```
    --max_tiles_per_site 0
    --panel_weight 20
@@ -53,17 +79,29 @@
    --epochs 100
    --output_dir trained_models/patisen_malicounda_unet_v3/
    ```
-2. **Vérifier GPU disponible** : `nvidia-smi` → VRAM libre ≥ 2 000 MB pour batch_size=4
-3. **Vérifier la disponibilité des données** :
-   - Orthomosaïque Malicounda présente ?
-   - Masque annotations Malicounda présent ?
-4. **S'assurer que l'autopush est actif** : le script doit committer `training_log.csv` et `train_log.txt` après chaque époque (ou par blocs).
 
-### Si blocage au démarrage
-- **OOM (Out of Memory)** : réduire `batch_size` de 4 à 2
-- **Tuiles illimitées trop lentes** : utiliser `--max_tiles_per_site 50000` en première approche pour valider la pipeline, puis relever à 0
-- **Données manquantes** : vérifier `data/malicounda/` et les chemins dans le script de config
+3. **Vérifier les données Malicounda** :
+   ```bash
+   ls data/malicounda/
+   # orthomosaïque + masque annotations présents ?
+   ```
+
+4. **Vérifier VRAM libre** :
+   ```bash
+   nvidia-smi --query-gpu=memory.free --format=csv
+   # Doit afficher ≥ 2000 MiB
+   ```
+
+5. **S'assurer que l'autopush est actif** : le script doit committer `training_log.csv` + `train_log.txt` après chaque époque.
+
+### Causes probables de blocage
+| Cause                    | Diagnostic                              | Solution                              |
+|--------------------------|----------------------------------------|---------------------------------------|
+| OOM batch_size=4         | `nvidia-smi` crash ou OOM dans logs    | Réduire batch_size à 2                |
+| Tuiles illimitées trop lentes | Chargement données > 30 min       | Utiliser `--max_tiles_per_site 50000` |
+| Données Malicounda absentes | FileNotFoundError au démarrage      | Vérifier chemins `data/malicounda/`   |
+| Process silencieusement crashé | Pas de PID Python actif         | Relancer le script manuellement       |
 
 ### Prochaine surveillance
-Relancer ce monitoring dès que l'entraînement est démarré et qu'au moins 1 époque est complétée.
+Relancer ce monitoring dès qu'au moins 1 époque est complétée.
 Le CSV devrait apparaître dans `trained_models/patisen_malicounda_unet_v3/training_log.csv` après la première époque.
