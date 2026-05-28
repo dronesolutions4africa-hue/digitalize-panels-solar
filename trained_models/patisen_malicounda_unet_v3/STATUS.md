@@ -17,10 +17,13 @@
 
 ## Analyse
 
-### État du run v3 (contrôle du 2026-05-28 — 3ème vérification consécutive)
+### État du run v3 (contrôle du 2026-05-28 — **4ème vérification consécutive**)
 - **Aucun nouveau fichier** dans le répertoire v3 depuis le premier monitoring (2026-05-27).
 - Ni `training_log.csv` ni `train_log.txt` ne sont présents → l'entraînement **n'a pas démarré** sur la machine locale, ou les fichiers ne sont pas encore committés/poussés vers le dépôt.
-- Historique git : 3 commits de monitoring `epoch 0/100 val_iou=N/A` consécutifs sans progression.
+- Historique git : 4 commits de monitoring `epoch 0/100 val_iou=N/A` consécutifs sans progression.
+  - `ba42d9f` — 2026-05-28 05:10 UTC (3ème)
+  - `b199bc6` — 2026-05-28 00:15 UTC (2ème)
+  - `85c5c9f` — 2026-05-27 15:12 UTC (1er v3)
 
 ### Configuration v3 (rappel)
 | Paramètre            | Valeur v3              | v2 (référence)         |
@@ -61,7 +64,7 @@
 
 ## Décision
 
-**L'entraînement v3 n'a toujours pas démarré (3ème contrôle consécutif sans données).**
+**L'entraînement v3 n'a toujours pas démarré (4ème contrôle consécutif sans données).**
 
 ### Actions requises URGENT (machine locale WSL2)
 
@@ -101,7 +104,10 @@
 | Tuiles illimitées trop lentes | Chargement données > 30 min       | Utiliser `--max_tiles_per_site 50000` |
 | Données Malicounda absentes | FileNotFoundError au démarrage      | Vérifier chemins `data/malicounda/`   |
 | Process silencieusement crashé | Pas de PID Python actif         | Relancer le script manuellement       |
+| Script non lancé         | Aucun `ps aux | grep train`             | Lancer le script de training v3       |
 
 ### Prochaine surveillance
 Relancer ce monitoring dès qu'au moins 1 époque est complétée.
 Le CSV devrait apparaître dans `trained_models/patisen_malicounda_unet_v3/training_log.csv` après la première époque.
+
+> **ALERTE : 4 vérifications sans aucune progression — intervention manuelle sur la machine WSL2 requise de toute urgence.**
