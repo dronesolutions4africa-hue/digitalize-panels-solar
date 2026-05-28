@@ -17,10 +17,11 @@
 
 ## Analyse
 
-### État du run v3 (contrôle du 2026-05-28 — **5ème vérification consécutive**)
+### État du run v3 (contrôle du 2026-05-28 — **6ème vérification consécutive**)
 - **Aucun nouveau fichier** dans le répertoire v3 depuis le premier monitoring (2026-05-27).
 - Ni `training_log.csv` ni `train_log.txt` ne sont présents → l'entraînement **n'a pas démarré** sur la machine locale, ou les fichiers ne sont pas encore committés/poussés vers le dépôt.
-- Historique git : 5 commits de monitoring `epoch 0/100 val_iou=N/A` consécutifs sans progression.
+- Historique git : 6 commits de monitoring `epoch 0/100 val_iou=N/A` consécutifs sans progression.
+  - `29866cc` — 2026-05-28 (5ème)
   - `56954c6` — 2026-05-28 (4ème)
   - `ba42d9f` — 2026-05-28 05:10 UTC (3ème)
   - `b199bc6` — 2026-05-28 00:15 UTC (2ème)
@@ -65,7 +66,7 @@
 
 ## Décision
 
-**L'entraînement v3 n'a toujours pas démarré (5ème contrôle consécutif sans données).**
+**L'entraînement v3 n'a toujours pas démarré (6ème contrôle consécutif sans données).**
 
 ### Actions requises URGENT (machine locale WSL2)
 
@@ -100,7 +101,7 @@
 
 6. **Alternative si `max_tiles_per_site 0` bloque au chargement** : démarrer avec `--max_tiles_per_site 50000` pour obtenir rapidement des métriques, puis relancer illimité si la mémoire le permet.
 
-### Causes probables de blocage (5ème alerte — priorité haute)
+### Causes probables de blocage (6ème alerte — priorité critique)
 | Cause                    | Diagnostic                              | Solution                              |
 |--------------------------|----------------------------------------|---------------------------------------|
 | OOM batch_size=4         | `nvidia-smi` crash ou OOM dans logs    | Réduire batch_size à 2                |
@@ -114,4 +115,4 @@
 Relancer ce monitoring dès qu'au moins 1 époque est complétée.
 Le CSV devrait apparaître dans `trained_models/patisen_malicounda_unet_v3/training_log.csv` après la première époque.
 
-> **ALERTE CRITIQUE : 5 vérifications consécutives sans aucune progression — intervention manuelle sur la machine WSL2 requise de toute urgence.**
+> **ALERTE CRITIQUE : 6 vérifications consécutives sans aucune progression — intervention manuelle sur la machine WSL2 requise de toute urgence.**
