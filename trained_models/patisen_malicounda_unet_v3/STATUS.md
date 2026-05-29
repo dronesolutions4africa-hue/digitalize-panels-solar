@@ -17,17 +17,19 @@
 
 ## Analyse
 
-### État du run v3 (contrôle du 2026-05-29 — **7ème vérification consécutive**)
+### État du run v3 (contrôle du 2026-05-29 — **8ème vérification consécutive**)
 - **Aucun nouveau fichier** dans le répertoire v3 depuis le premier monitoring (2026-05-27).
 - Ni `training_log.csv` ni `train_log.txt` ne sont présents → l'entraînement **n'a pas démarré** sur la machine locale, ou les fichiers ne sont pas committés/poussés.
-- Historique git v3 : 7 commits de monitoring `epoch 0/100 val_iou=N/A` consécutifs sans progression :
+- Historique git v3 : 8 commits de monitoring `epoch 0/100 val_iou=N/A` consécutifs sans progression :
+  - `53e5e44` — 2026-05-29 00:11 UTC (7ème)
   - `ddeec63` — 2026-05-28 20:10 UTC (6ème)
   - `29866cc` — 2026-05-28 15:12 UTC (5ème)
   - `56954c6` — 2026-05-28 10:11 UTC (4ème)
   - `ba42d9f` — 2026-05-28 05:10 UTC (3ème)
   - `b199bc6` — 2026-05-28 00:15 UTC (2ème)
   - `85c5c9f` — 2026-05-27 15:12 UTC (1er v3)
-- Dernier check (6ème) : **2026-05-28 20:10 UTC** → **~9 heures sans changement**
+- Dernier check (7ème) : **2026-05-29 00:11 UTC** → **~5 heures sans changement**
+- **Durée totale sans données : ~59 heures depuis la 1ère vérification**
 
 ### Configuration v3 (rappel)
 | Paramètre            | Valeur v3              | v2 (référence)         |
@@ -68,7 +70,7 @@
 
 ## Décision
 
-**L'entraînement v3 n'a toujours pas démarré (7ème contrôle consécutif — ~54 heures depuis la 1ère vérification).**
+**L'entraînement v3 n'a toujours pas démarré (8ème contrôle consécutif — ~59 heures depuis la 1ère vérification).**
 
 ### Actions requises URGENT (machine locale WSL2)
 
@@ -103,7 +105,7 @@
 
 6. **Alternative si `max_tiles_per_site 0` bloque au chargement** : démarrer avec `--max_tiles_per_site 50000` pour obtenir rapidement des métriques, puis relancer illimité si la mémoire le permet.
 
-### Causes probables de blocage (7ème alerte — niveau CRITIQUE MAXIMUM)
+### Causes probables de blocage (8ème alerte — niveau CRITIQUE MAXIMUM)
 | Cause                    | Diagnostic                              | Solution                              |
 |--------------------------|----------------------------------------|---------------------------------------|
 | OOM batch_size=4         | `nvidia-smi` crash ou OOM dans logs    | Réduire batch_size à 2                |
@@ -117,4 +119,4 @@
 Relancer ce monitoring dès qu'au moins 1 époque est complétée.
 Le CSV devrait apparaître dans `trained_models/patisen_malicounda_unet_v3/training_log.csv` après la première époque.
 
-> **⚠ ALERTE CRITIQUE MAXIMUM : 7 vérifications consécutives (~54h) sans aucune progression — intervention manuelle sur la machine WSL2 requise de toute urgence.**
+> **⚠ ALERTE CRITIQUE MAXIMUM : 8 vérifications consécutives (~59h) sans aucune progression — intervention manuelle sur la machine WSL2 requise de toute urgence.**
