@@ -1,4 +1,4 @@
-# Surveillance U-Net v3 — 2026-05-29
+# Surveillance U-Net v3 — 2026-05-30
 
 ## État : DÉMARRAGE — EN ATTENTE (aucune époque complète)
 - Époque : 0/100
@@ -17,10 +17,11 @@
 
 ## Analyse
 
-### État du run v3 (contrôle du 2026-05-29 20:09 UTC — **10ème vérification consécutive**)
+### État du run v3 (contrôle du 2026-05-30 — **11ème vérification consécutive**)
 - **Aucun nouveau fichier** dans le répertoire v3 depuis le premier monitoring (2026-05-27 15:12 UTC).
 - Ni `training_log.csv` ni `train_log.txt` ne sont présents → l'entraînement **n'a pas démarré** sur la machine locale, ou les fichiers ne sont pas committés/poussés.
-- Historique git v3 : 10 commits de monitoring `epoch 0/100 val_iou=N/A` consécutifs sans progression :
+- Historique git v3 : 11 commits de monitoring `epoch 0/100 val_iou=N/A` consécutifs sans progression :
+  - `a1e1a18` — 2026-05-29 ~20:09 UTC (10ème)
   - `b92fd24` — 2026-05-29 ~10:10 UTC (9ème)
   - `86d443c` — 2026-05-29 05:10 UTC (8ème)
   - `53e5e44` — 2026-05-29 00:11 UTC (7ème)
@@ -30,8 +31,8 @@
   - `ba42d9f` — 2026-05-28 05:10 UTC (3ème)
   - `b199bc6` — 2026-05-28 00:15 UTC (2ème)
   - `85c5c9f` — 2026-05-27 15:12 UTC (1er v3)
-- Dernier check (9ème) : **~10:10 UTC** → **~10 heures sans changement**
-- **Durée totale sans données : ~53 heures depuis la 1ère vérification (2026-05-27 15:12 UTC)**
+- **Durée totale sans données : ~77 heures depuis la 1ère vérification (2026-05-27 15:12 UTC)**
+- **Dernière vérification précédente (10ème) : 2026-05-29 ~20:09 UTC → ~24 heures sans changement**
 
 ### Configuration v3 (rappel)
 | Paramètre            | Valeur v3              | v2 (référence)         |
@@ -72,11 +73,11 @@
 
 ## Décision
 
-**L'entraînement v3 n'a toujours pas démarré (10ème contrôle consécutif — ~53 heures depuis la 1ère vérification).**
+**L'entraînement v3 n'a toujours pas démarré (11ème contrôle consécutif — ~77 heures depuis la 1ère vérification).**
 
-### Actions requises URGENT (machine locale WSL2)
+### Actions requises — ALERTE CRITIQUE MAXIMALE (3ème journée consécutive)
 
-1. **Vérifier l'état du processus Python** :
+1. **Vérifier immédiatement l'état du processus Python** :
    ```bash
    ps aux | grep python
    nvidia-smi  # GPU occupé ?
@@ -105,9 +106,11 @@
 
 5. **S'assurer que l'autopush est actif** : le script doit committer `training_log.csv` + `train_log.txt` après chaque époque.
 
-6. **Alternative si `max_tiles_per_site 0` bloque au chargement** : démarrer avec `--max_tiles_per_site 50000` pour obtenir rapidement des métriques, puis relancer illimité si la mémoire le permet.
+6. **Alternative d'urgence si `max_tiles_per_site 0` bloque au chargement** :
+   - Démarrer avec `--max_tiles_per_site 50000` pour obtenir rapidement des métriques
+   - Relancer illimité si la mémoire le permet
 
-### Causes probables de blocage (10ème alerte — niveau CRITIQUE MAXIMUM)
+### Causes probables de blocage (11ème alerte — CRITIQUE ABSOLU)
 | Cause                    | Diagnostic                              | Solution                              |
 |--------------------------|----------------------------------------|---------------------------------------|
 | OOM batch_size=4         | `nvidia-smi` crash ou OOM dans logs    | Réduire batch_size à 2                |
@@ -121,4 +124,4 @@
 Relancer ce monitoring dès qu'au moins 1 époque est complétée.
 Le CSV devrait apparaître dans `trained_models/patisen_malicounda_unet_v3/training_log.csv` après la première époque.
 
-> **⚠ ALERTE CRITIQUE MAXIMUM : 10 vérifications consécutives (~53h) sans aucune progression — intervention manuelle sur la machine WSL2 requise de toute urgence.**
+> **⚠ ALERTE CRITIQUE ABSOLUE : 11 vérifications consécutives (~77h) sans aucune progression — intervention manuelle sur la machine WSL2 URGENTE. L'entraînement v3 n'a probablement jamais démarré.**
