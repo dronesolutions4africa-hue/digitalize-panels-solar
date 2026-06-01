@@ -13,12 +13,12 @@ while ($true) {
     $changed = git status --porcelain trained_models/ 2>$null
     if ($changed) {
         git -c user.email="ndiouryoussouph@gmail.com" -c user.name="dronesolutions4africa-hue" `
-            add trained_models/patisen_malicounda_unet_v3/training_log.csv `
-                 trained_models/patisen_malicounda_unet_v3/training_curves.png `
-                 trained_models/patisen_malicounda_unet_v3/STATUS.md 2>$null
+            add trained_models/patisen_malicounda_unet_ft/training_log.csv `
+                 trained_models/patisen_malicounda_unet_ft/training_curves.png `
+                 trained_models/patisen_malicounda_unet_ft/STATUS.md 2>$null
         $ts = Get-Date -Format "yyyy-MM-dd HH:mm"
         git -c user.email="ndiouryoussouph@gmail.com" -c user.name="dronesolutions4africa-hue" `
-            commit -m "v3 training results update $ts" 2>$null
+            commit -m "ft training results update $ts" 2>$null
         git push origin main 2>$null
         Add-Content "$projectDir\autopush.log" "$ts  pushed OK"
     }
