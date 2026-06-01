@@ -1,4 +1,4 @@
-# Surveillance U-Net v3 — 2026-05-31
+# Surveillance U-Net v3 — 2026-06-01
 
 ## État : DÉMARRAGE — EN ATTENTE (aucune époque complète)
 - Époque : 0/100
@@ -17,10 +17,11 @@
 
 ## Analyse
 
-### État du run v3 (contrôle du 2026-05-31 — **17ème vérification consécutive**)
+### État du run v3 (contrôle du 2026-06-01 — **18ème vérification consécutive**)
 - **Aucun nouveau fichier** dans le répertoire v3 depuis le premier monitoring (2026-05-27 15:12 UTC).
 - Ni `training_log.csv` ni `train_log.txt` ne sont présents → l'entraînement **n'a pas démarré** sur la machine locale, ou les fichiers ne sont pas committés/poussés.
-- Historique git v3 : 17 commits de monitoring `epoch 0/100 val_iou=N/A` consécutifs sans progression :
+- Historique git v3 : 18 commits de monitoring `epoch 0/100 val_iou=N/A` consécutifs sans progression :
+  - `c31dc88` — 2026-05-31 15:12 UTC (17ème)
   - `078f6b9` — 2026-05-31 10:11 UTC (16ème)
   - `fb2a895` — 2026-05-30 20:11 UTC (15ème)
   - `c37906c` — 2026-05-30 15:10 UTC (14ème)
@@ -37,8 +38,8 @@
   - `ba42d9f` — 2026-05-28 05:10 UTC (3ème)
   - `b199bc6` — 2026-05-28 00:15 UTC (2ème)
   - `85c5c9f` — 2026-05-27 15:12 UTC (1er v3)
-- **Durée totale sans données : ~96 heures (4 jours depuis la 1ère vérification 2026-05-27 15:12 UTC)**
-- **Dernière vérification précédente (16ème) : 2026-05-31 10:11 UTC → ~5 heures sans changement**
+- **Durée totale sans données : ~108 heures (4,5 jours depuis la 1ère vérification 2026-05-27 15:12 UTC)**
+- **Dernière vérification précédente (17ème) : 2026-05-31 15:12 UTC → ~13h sans changement**
 
 ### Configuration v3 (rappel)
 | Paramètre            | Valeur v3              | v2 (référence)         |
@@ -79,9 +80,9 @@
 
 ## Décision
 
-**L'entraînement v3 n'a toujours pas démarré (17ème contrôle consécutif — 96 heures / 4 jours complets depuis la 1ère vérification).**
+**L'entraînement v3 n'a toujours pas démarré (18ème contrôle consécutif — ~108h / 4,5 jours depuis la 1ère vérification).**
 
-### Actions requises — ALERTE CRITIQUE MAXIMALE (4ème journée complète)
+### Actions requises — ALERTE CRITIQUE MAXIMALE (5ème journée complète)
 
 1. **Vérifier immédiatement l'état du processus Python** :
    ```bash
@@ -116,7 +117,7 @@
    - Démarrer avec `--max_tiles_per_site 50000` pour obtenir rapidement des métriques
    - Relancer illimité si la mémoire le permet
 
-### Causes probables de blocage (17ème alerte — CRITIQUE ABSOLU)
+### Causes probables de blocage (18ème alerte — CRITIQUE ABSOLU)
 | Cause                    | Diagnostic                              | Solution                              |
 |--------------------------|----------------------------------------|---------------------------------------|
 | OOM batch_size=4         | `nvidia-smi` crash ou OOM dans logs    | Réduire batch_size à 2                |
@@ -130,4 +131,4 @@
 Relancer ce monitoring dès qu'au moins 1 époque est complétée.
 Le CSV devrait apparaître dans `trained_models/patisen_malicounda_unet_v3/training_log.csv` après la première époque.
 
-> **ALERTE CRITIQUE ABSOLUE : 17 vérifications consécutives (96h = 4 jours complets) sans aucune progression — intervention manuelle sur la machine WSL2 URGENTE. L'entraînement v3 n'a probablement jamais démarré.**
+> **ALERTE CRITIQUE ABSOLUE : 18 vérifications consécutives (~108h = 4,5 jours complets) sans aucune progression — intervention manuelle sur la machine WSL2 URGENTE. L'entraînement v3 n'a probablement jamais démarré.**
