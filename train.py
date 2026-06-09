@@ -82,12 +82,9 @@ def parse_args():
 def setup_gpu():
     gpus = tf.config.list_physical_devices("GPU")
     if gpus:
-        # Hard cap at 85% of 16384 MB VRAM (RTX A4500) = 13926 MB
-        tf.config.set_logical_device_configuration(
-            gpus[0],
-            [tf.config.LogicalDeviceConfiguration(memory_limit=13926)]
-        )
-        print(f"[GPU] {len(gpus)} device(s): {[g.name for g in gpus]} — capped at 13926 MB (85% VRAM)")
+        for gpu in gpus:
+            tf.config.experimental.set_memory_growth(gpu, True)
+        print(f"[GPU] {len(gpus)} device(s): {[g.name for g in gpus]} — memory growth enabled")
     else:
         print("[GPU] None found — running on CPU (slow)")
     return bool(gpus)
@@ -121,11 +118,11 @@ def rasterize_labels(ortho_path: str, shp_path: str) -> np.ndarray:
 
 
 # ── Data: site loader ─────────────────────────────────────────────────────────
-_MAX_RAM_GB = 4.0  # images larger than this use windowed tile reading
+_MAX_RAM_GB = 10.0  # uncompressed RGB uint8 RAM limit (not file size)
 
 def load_site(ortho_path: str, shp_path: str) -> dict:
-    """Load one site. Small images (<4 GB) go fully into RAM; large ones use
-    windowed rasterio reads per tile to avoid memory exhaustion."""
+    """Load one site. Images whose uncompressed uint8 RGB fits under _MAX_RAM_GB
+    are fully loaded into RAM for fast tile access; larger ones use windowed reads."""
     file_gb = os.path.getsize(ortho_path) / 1e9
     with rasterio.open(ortho_path) as src:
         height, width, n_bands = src.height, src.width, src.count
@@ -133,7 +130,9 @@ def load_site(ortho_path: str, shp_path: str) -> dict:
 
     mask = rasterize_labels(ortho_path, shp_path)
 
-    if file_gb <= _MAX_RAM_GB:
+    # Estimate uncompressed RAM: height × width × 3 bands × 1 byte (uint8)
+    ram_gb = height * width * 3 / 1e9
+    if ram_gb <= _MAX_RAM_GB:
         t0 = time.time()
         with rasterio.open(ortho_path) as src:
             bands = [1, 2, 3] if src.count >= 3 else [1, 1, 1]
