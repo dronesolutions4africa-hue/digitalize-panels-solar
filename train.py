@@ -69,12 +69,23 @@ def parse_args():
     p.add_argument("--max_tiles_per_site", type=int, default=0,
                    help="Cap tiles per site (0=unlimited). Use ~5000 for very large sites like Malicounda.")
     p.add_argument("--model", default="fast_scnn_2",
-                   choices=["fast_scnn_2", "unet_resnet50"],
+                   choices=["fast_scnn_2", "unet_resnet50", "unet_resnet50_attn", "unet_efficientnetb4"],
                    help="Model architecture to train")
     p.add_argument("--freeze_encoder_epochs", type=int, default=20,
                    help="(unet_resnet50 only) Epochs with frozen ResNet50 encoder before fine-tuning")
     p.add_argument("--resume", action="store_true",
                    help="Load best_model.weights.h5 from output_dir before training")
+    p.add_argument("--resume_weights", default=None,
+                   help="Load weights from this path before training (e.g. fine-tune from v2 weights)")
+    p.add_argument("--skip_phase1", action="store_true",
+                   help="Skip frozen Phase 1 and go directly to Phase 2 (requires --resume)")
+    p.add_argument("--initial_epoch", type=int, default=None,
+                   help="Starting epoch for Phase 2 when using --skip_phase1 (default: freeze_encoder_epochs)")
+    p.add_argument("--freeze_encoder_bn", action="store_true",
+                   help="Keep BatchNorm layers frozen in encoder during Phase 2 (recommended when batch_size<=2)")
+    p.add_argument("--loss", default="combo",
+                   choices=["combo", "focal_tversky"],
+                   help="Loss function: 'combo' (wBCE+Dice) or 'focal_tversky' (better for hard examples)")
     return p.parse_args()
 
 
@@ -210,12 +221,11 @@ def _augment(img, msk):
 
 
 def make_dataset(sites: list, indices: list, tile_size: int, batch_size: int,
-                 augment: bool = False, shuffle: bool = False):
+                 augment: bool = False, shuffle: bool = False, n_outputs: int = 1):
     """
     Multi-site tf.data.Dataset.
-    sites  : list of dicts from load_site() — each has 'rgb' (array or None),
-             'mask' (array), 'path' (str for windowed reading).
-    indices: list of (site_id, row, col) tuples.
+    n_outputs=1  → returns (img, mask)            for standard models
+    n_outputs=3  → returns (img, (mask, mask, mask)) for Attention U-Net deep supervision
     """
     site_ids = np.array([s for s, r, c in indices], dtype=np.int32)
     rows     = np.array([r for s, r, c in indices], dtype=np.int32)
@@ -249,12 +259,28 @@ def make_dataset(sites: list, indices: list, tile_size: int, batch_size: int,
         msk.set_shape((tile_size, tile_size, 2))
         return img, msk
 
+    def map_fn_deep_sup(sid, r, c):
+        img, msk = tf.py_function(load_tile, [sid, r, c], [tf.float32, tf.float32])
+        img.set_shape((tile_size, tile_size, 3))
+        msk.set_shape((tile_size, tile_size, 2))
+        # deep supervision: same ground-truth for all 3 outputs
+        return img, {"main_output": msk, "aux_d3_output": msk, "aux_d4_output": msk}
+
     ds = tf.data.Dataset.from_tensor_slices((site_ids, rows, cols))
     if shuffle:
         ds = ds.shuffle(buffer_size=len(indices), reshuffle_each_iteration=True)
-    ds = ds.map(map_fn, num_parallel_calls=tf.data.AUTOTUNE)
+    _map = map_fn_deep_sup if n_outputs == 3 else map_fn
+    ds = ds.map(_map, num_parallel_calls=tf.data.AUTOTUNE)
     if augment:
-        ds = ds.map(_augment, num_parallel_calls=tf.data.AUTOTUNE)
+        if n_outputs == 3:
+            def _augment_deep(img, y_dict):
+                aug_img, aug_msk = _augment(img, y_dict["main_output"])
+                return aug_img, {"main_output": aug_msk,
+                                 "aux_d3_output": aug_msk,
+                                 "aux_d4_output": aug_msk}
+            ds = ds.map(_augment_deep, num_parallel_calls=tf.data.AUTOTUNE)
+        else:
+            ds = ds.map(_augment, num_parallel_calls=tf.data.AUTOTUNE)
     return ds.batch(batch_size).prefetch(tf.data.AUTOTUNE)
 
 
@@ -271,17 +297,12 @@ def panel_iou(y_true, y_pred):
 
 # ── Loss ──────────────────────────────────────────────────────────────────────
 def make_combo_loss(panel_weight: float):
-    """
-    Returns a loss = weighted categorical BCE + Dice on the panel class.
-    panel_weight upweights panel pixels in the BCE term to fight class imbalance.
-    """
+    """Weighted categorical BCE + Dice on the panel class."""
     def combo_loss(y_true, y_pred):
-        # Pixel-level weight map: background=1, panel=panel_weight
         weight_map = y_true[..., 0] * 1.0 + y_true[..., 1] * panel_weight
         bce = tf.keras.losses.categorical_crossentropy(y_true, y_pred)
         w_bce = tf.reduce_mean(bce * weight_map)
 
-        # Dice loss on the panel class (index 1)
         true_p = y_true[..., 1]
         pred_p = y_pred[..., 1]
         smooth = 1.0
@@ -295,8 +316,36 @@ def make_combo_loss(panel_weight: float):
     return combo_loss
 
 
+def make_focal_tversky_loss(panel_weight: float, alpha: float = 0.3,
+                             beta: float = 0.7, gamma: float = 1.33):
+    """
+    Focal Tversky Loss — designed for highly imbalanced segmentation.
+    alpha = FP penalty weight, beta = FN penalty weight (beta > alpha favours recall).
+    gamma > 1 down-weights easy (background) examples and focuses training on hard
+    (missed panel) pixels. Combined with weighted BCE for numerical stability.
+    """
+    def focal_tversky_loss(y_true, y_pred):
+        true_p = y_true[..., 1]
+        pred_p = y_pred[..., 1]
+        smooth = 1e-6
+        tp = tf.reduce_sum(true_p * pred_p)
+        fp = tf.reduce_sum((1.0 - true_p) * pred_p)
+        fn = tf.reduce_sum(true_p * (1.0 - pred_p))
+        tversky = (tp + smooth) / (tp + alpha * fp + beta * fn + smooth)
+        ftl = tf.pow(1.0 - tversky, 1.0 / gamma)
+
+        weight_map = y_true[..., 0] * 1.0 + y_true[..., 1] * panel_weight
+        bce = tf.keras.losses.categorical_crossentropy(y_true, y_pred)
+        w_bce = tf.reduce_mean(bce * weight_map)
+        return ftl + 0.5 * w_bce
+
+    focal_tversky_loss.__name__ = "focal_tversky_loss"
+    return focal_tversky_loss
+
+
 # ── Model ─────────────────────────────────────────────────────────────────────
-def build_model(tile_size: int, lr: float, panel_weight: float, model_name: str = "fast_scnn_2"):
+def build_model(tile_size: int, lr: float, panel_weight: float,
+                model_name: str = "fast_scnn_2", loss_name: str = "combo"):
     """Build and compile the requested model. Returns (model, encoder_or_None)."""
     encoder = None
     if model_name == "fast_scnn_2":
@@ -312,13 +361,44 @@ def build_model(tile_size: int, lr: float, panel_weight: float, model_name: str 
             input_shape=(tile_size, tile_size, 3),
             n_labels=2,
         )
+    elif model_name == "unet_resnet50_attn":
+        from model_list import unet_resnet50_attn as _unet_attn
+        model, encoder = _unet_attn.build_unet_resnet50_attn(
+            input_shape=(tile_size, tile_size, 3),
+            n_labels=2,
+        )
+    elif model_name == "unet_efficientnetb4":
+        from model_list import unet_efficientnetb4 as _unet_eff
+        model, encoder = _unet_eff.build_unet_efficientnetb4(
+            input_shape=(tile_size, tile_size, 3),
+            n_labels=2,
+        )
     else:
         raise ValueError(f"Unknown model: {model_name!r}")
 
+    # Attention U-Net outputs [main, aux_d3, aux_d4] — use weighted multi-output loss
+    is_deep_sup = model_name == "unet_resnet50_attn"
+    loss_fn_single = (make_focal_tversky_loss(panel_weight)
+                      if loss_name == "focal_tversky"
+                      else make_combo_loss(panel_weight))
+    if is_deep_sup:
+        loss_fn = {
+            "main_output":  loss_fn_single,
+            "aux_d3_output": loss_fn_single,
+            "aux_d4_output": loss_fn_single,
+        }
+        loss_weights = {"main_output": 1.0, "aux_d3_output": 0.4, "aux_d4_output": 0.2}
+        metrics_cfg  = {"main_output": [panel_iou]}
+    else:
+        loss_fn      = loss_fn_single
+        loss_weights = None
+        metrics_cfg  = [panel_iou]
+    print(f"[Model] Loss: {loss_name}{'  deep_supervision=ON' if is_deep_sup else ''}")
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=lr),
-        loss=make_combo_loss(panel_weight),
-        metrics=[panel_iou],
+        loss=loss_fn,
+        loss_weights=loss_weights,
+        metrics=metrics_cfg,
     )
     return model, encoder
 
@@ -401,27 +481,46 @@ def main():
         est = args.batch_size * len(panel_train) * args.panel_oversample / len(oversampled)
         print(f"       Expected panel tiles/batch: {est:.1f} / {args.batch_size}")
 
-    # 4. TF Datasets
-    train_ds = make_dataset(sites, oversampled, args.tile_size, args.batch_size, augment=True, shuffle=True)
-    val_ds   = make_dataset(sites, all_val_idx,  args.tile_size, args.batch_size, augment=False, shuffle=False)
+    # 4. TF Datasets — deep supervision needs 3 y targets
+    _n_out = 3 if args.model == "unet_resnet50_attn" else 1
+    train_ds = make_dataset(sites, oversampled, args.tile_size, args.batch_size,
+                            augment=True,  shuffle=True,  n_outputs=_n_out)
+    val_ds   = make_dataset(sites, all_val_idx,  args.tile_size, args.batch_size,
+                            augment=False, shuffle=False, n_outputs=_n_out)
 
     # 5. Model
     print(f"\n[Model] {args.model}  input={args.tile_size}×{args.tile_size}  "
-          f"lr={args.lr}  panel_weight={args.panel_weight}")
-    model, encoder = build_model(args.tile_size, args.lr, args.panel_weight, args.model)
+          f"lr={args.lr}  panel_weight={args.panel_weight}  loss={args.loss}")
+    model, encoder = build_model(args.tile_size, args.lr, args.panel_weight,
+                                  args.model, args.loss)
     model.summary(line_length=90)
 
-    # Freeze ResNet50 encoder during warm-up phase (U-Net only)
+    # Freeze encoder during warm-up phase (U-Net variants only)
+    is_deep_sup = args.model == "unet_resnet50_attn"
     if encoder is not None and args.freeze_encoder_epochs > 0:
         encoder.trainable = False
+        _loss_s = (make_focal_tversky_loss(args.panel_weight)
+                   if args.loss == "focal_tversky"
+                   else make_combo_loss(args.panel_weight))
+        if is_deep_sup:
+            _loss_cfg = {"main_output": _loss_s, "aux_d3_output": _loss_s, "aux_d4_output": _loss_s}
+            _lw = {"main_output": 1.0, "aux_d3_output": 0.4, "aux_d4_output": 0.2}
+            _met = {"main_output": [panel_iou]}
+        else:
+            _loss_cfg, _lw, _met = _loss_s, None, [panel_iou]
         model.compile(
             optimizer=tf.keras.optimizers.Adam(learning_rate=args.lr),
-            loss=make_combo_loss(args.panel_weight),
-            metrics=[panel_iou],
+            loss=_loss_cfg, loss_weights=_lw, metrics=_met,
         )
         print(f"[Model] Encoder frozen for first {args.freeze_encoder_epochs} epochs")
 
-    if args.resume:
+    if args.resume_weights:
+        if os.path.exists(args.resume_weights):
+            model.load_weights(args.resume_weights)
+            print(f"[Resume] Loaded weights from {args.resume_weights}")
+        else:
+            print(f"[Resume] WARNING: {args.resume_weights} not found — starting from scratch")
+    elif args.resume:
         resume_path = os.path.join(args.output_dir, "best_model.weights.h5")
         if os.path.exists(resume_path):
             model.load_weights(resume_path)
@@ -443,19 +542,20 @@ def main():
         tf.keras.callbacks.ReduceLROnPlateau(
             monitor="val_loss",
             factor=0.5,
-            patience=15,
-            min_lr=1e-7,
+            patience=25,
+            min_lr=1e-6,
             verbose=1,
         ),
         tf.keras.callbacks.EarlyStopping(
             monitor="val_loss",
             mode="min",
-            patience=40,
+            patience=50,
             restore_best_weights=True,
             verbose=1,
         ),
         tf.keras.callbacks.CSVLogger(
-            os.path.join(args.output_dir, "training_log.csv")
+            os.path.join(args.output_dir, "training_log.csv"),
+            append=True,
         ),
     ]
 
@@ -463,39 +563,84 @@ def main():
     print(f"\n[Train] epochs={args.epochs}  batch={args.batch_size}  "
           f"steps/epoch~{len(oversampled)//args.batch_size}")
 
-    # Phase 1 — frozen encoder warm-up (U-Net) or full training (Fast SCNN)
     phase1_epochs = (
         args.freeze_encoder_epochs
         if encoder is not None and args.freeze_encoder_epochs > 0
         else args.epochs
     )
-    history = model.fit(
-        train_ds,
-        validation_data=val_ds,
-        epochs=phase1_epochs,
-        callbacks=callbacks,
-        verbose=1,
-    )
 
-    # Phase 2 — unfreeze encoder and fine-tune with lower LR (U-Net only)
-    if encoder is not None and args.freeze_encoder_epochs > 0 and args.epochs > args.freeze_encoder_epochs:
-        print(f"\n[Train] Unfreezing encoder — fine-tuning with lr={args.lr / 10:.2e}")
-        encoder.trainable = True
+    def _unfreeze_encoder_for_phase2(enc, freeze_bn):
+        """Unfreeze encoder conv weights, optionally keeping BN frozen."""
+        enc.trainable = True
+        if freeze_bn:
+            bn_frozen = 0
+            for layer in enc.layers:
+                if isinstance(layer, tf.keras.layers.BatchNormalization):
+                    layer.trainable = False
+                    bn_frozen += 1
+            print(f"[Train] BN layers in encoder frozen ({bn_frozen} layers) — using ImageNet BN stats")
+        else:
+            print(f"[Train] Encoder fully unfrozen including BN layers")
+
+    def _build_phase2_loss():
+        loss2 = (make_focal_tversky_loss(args.panel_weight)
+                 if args.loss == "focal_tversky"
+                 else make_combo_loss(args.panel_weight))
+        if is_deep_sup:
+            lc = {"main_output": loss2, "aux_d3_output": loss2, "aux_d4_output": loss2}
+            lw = {"main_output": 1.0, "aux_d3_output": 0.4, "aux_d4_output": 0.2}
+            mt = {"main_output": [panel_iou]}
+        else:
+            lc, lw, mt = loss2, None, [panel_iou]
+        return lc, lw, mt
+
+    # --skip_phase1: jump directly to Phase 2 (used when resuming after OOM mid-Phase-2)
+    if args.skip_phase1 and encoder is not None and args.freeze_encoder_epochs > 0:
+        start_ep = args.initial_epoch if args.initial_epoch is not None else phase1_epochs
+        print(f"\n[Train] --skip_phase1: jumping to Phase 2 at epoch {start_ep}, lr={args.lr / 3:.2e}")
+        _unfreeze_encoder_for_phase2(encoder, args.freeze_encoder_bn)
+        _lc2, _lw2, _mt2 = _build_phase2_loss()
         model.compile(
-            optimizer=tf.keras.optimizers.Adam(learning_rate=args.lr / 10),
-            loss=make_combo_loss(args.panel_weight),
-            metrics=[panel_iou],
+            optimizer=tf.keras.optimizers.Adam(learning_rate=args.lr / 3),
+            loss=_lc2, loss_weights=_lw2, metrics=_mt2,
         )
-        history2 = model.fit(
+        history = model.fit(
             train_ds,
             validation_data=val_ds,
             epochs=args.epochs,
-            initial_epoch=phase1_epochs,
+            initial_epoch=start_ep,
             callbacks=callbacks,
             verbose=1,
         )
-        for k in history.history:
-            history.history[k].extend(history2.history.get(k, []))
+    else:
+        # Phase 1 — frozen encoder warm-up (U-Net) or full training (Fast SCNN)
+        history = model.fit(
+            train_ds,
+            validation_data=val_ds,
+            epochs=phase1_epochs,
+            callbacks=callbacks,
+            verbose=1,
+        )
+
+        # Phase 2 — unfreeze encoder and fine-tune with lower LR (U-Net only)
+        if encoder is not None and args.freeze_encoder_epochs > 0 and args.epochs > args.freeze_encoder_epochs:
+            print(f"\n[Train] Unfreezing encoder — fine-tuning with lr={args.lr / 3:.2e}")
+            _unfreeze_encoder_for_phase2(encoder, args.freeze_encoder_bn)
+            _lc2, _lw2, _mt2 = _build_phase2_loss()
+            model.compile(
+                optimizer=tf.keras.optimizers.Adam(learning_rate=args.lr / 3),
+                loss=_lc2, loss_weights=_lw2, metrics=_mt2,
+            )
+            history2 = model.fit(
+                train_ds,
+                validation_data=val_ds,
+                epochs=args.epochs,
+                initial_epoch=phase1_epochs,
+                callbacks=callbacks,
+                verbose=1,
+            )
+            for k in history.history:
+                history.history[k].extend(history2.history.get(k, []))
 
     # 8. Save curves and report
     save_curves(history, args.output_dir)
