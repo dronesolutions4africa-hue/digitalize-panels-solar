@@ -407,6 +407,7 @@ def build_model(tile_size: int, lr: float, panel_weight: float,
         loss=loss_fn,
         loss_weights=loss_weights,
         metrics=metrics_cfg,
+        jit_compile=False,
     )
     return model, encoder
 
@@ -544,6 +545,7 @@ def main():
         model.compile(
             optimizer=tf.keras.optimizers.Adam(learning_rate=args.lr),
             loss=_loss_cfg, loss_weights=_lw, metrics=_met,
+            jit_compile=False,
         )
         print(f"[Model] Encoder frozen for first {args.freeze_encoder_epochs} epochs")
 
@@ -639,6 +641,7 @@ def main():
         model.compile(
             optimizer=_opt2,
             loss=_lc2, loss_weights=_lw2, metrics=_mt2,
+            jit_compile=False,
         )
         history = model.fit(
             train_ds,
@@ -663,9 +666,13 @@ def main():
             print(f"\n[Train] Unfreezing encoder — fine-tuning with lr={args.lr / 3:.2e}")
             _unfreeze_encoder_for_phase2(encoder, args.freeze_encoder_bn)
             _lc2, _lw2, _mt2 = _build_phase2_loss()
+            _opt2_p = tf.keras.optimizers.Adam(learning_rate=args.lr / 3)
+            if tf.keras.mixed_precision.global_policy().name == 'mixed_float16':
+                _opt2_p = tf.keras.mixed_precision.LossScaleOptimizer(_opt2_p)
             model.compile(
-                optimizer=tf.keras.optimizers.Adam(learning_rate=args.lr / 3),
+                optimizer=_opt2_p,
                 loss=_lc2, loss_weights=_lw2, metrics=_mt2,
+                jit_compile=False,
             )
             history2 = model.fit(
                 train_ds,
