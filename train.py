@@ -83,6 +83,10 @@ def parse_args():
                    help="Starting epoch for Phase 2 when using --skip_phase1 (default: freeze_encoder_epochs)")
     p.add_argument("--freeze_encoder_bn", action="store_true",
                    help="Keep BatchNorm layers frozen in encoder during Phase 2 (recommended when batch_size<=2)")
+    p.add_argument("--mixed_precision", action="store_true",
+                   help="Enable float16 mixed precision — halves activation memory, allows batch_size=4 on 16GB GPU")
+    p.add_argument("--max_panel_tiles", type=int, default=0,
+                   help="Cap total panel tiles across all sites at N, distributed proportionally by panel pixel count. 0=unlimited.")
     p.add_argument("--loss", default="combo",
                    choices=["combo", "focal_tversky"],
                    help="Loss function: 'combo' (wBCE+Dice) or 'focal_tversky' (better for hard examples)")
@@ -394,8 +398,12 @@ def build_model(tile_size: int, lr: float, panel_weight: float,
         loss_weights = None
         metrics_cfg  = [panel_iou]
     print(f"[Model] Loss: {loss_name}{'  deep_supervision=ON' if is_deep_sup else ''}")
+    opt = tf.keras.optimizers.Adam(learning_rate=lr)
+    if tf.keras.mixed_precision.global_policy().name == 'mixed_float16':
+        opt = tf.keras.mixed_precision.LossScaleOptimizer(opt)
+        print("[Model] LossScaleOptimizer enabled for mixed precision")
     model.compile(
-        optimizer=tf.keras.optimizers.Adam(learning_rate=lr),
+        optimizer=opt,
         loss=loss_fn,
         loss_weights=loss_weights,
         metrics=metrics_cfg,
@@ -439,6 +447,11 @@ def main():
     os.makedirs(args.output_dir, exist_ok=True)
     setup_gpu()
 
+    if args.mixed_precision:
+        policy = tf.keras.mixed_precision.Policy('mixed_float16')
+        tf.keras.mixed_precision.set_global_policy(policy)
+        print("[GPU] Mixed precision enabled — float16 activations, float32 weights/gradients")
+
     if len(args.ortho) != len(args.shp):
         raise ValueError(f"--ortho ({len(args.ortho)}) and --shp ({len(args.shp)}) must match")
 
@@ -472,6 +485,26 @@ def main():
                    if sites[s]['mask'][r:r+args.tile_size, c:c+args.tile_size].max() > 0]
     bg_train    = [(s, r, c) for s, r, c in all_train_idx
                    if sites[s]['mask'][r:r+args.tile_size, c:c+args.tile_size].max() == 0]
+
+    # Proportional panel tile capping: distribute max_panel_tiles by mask pixel count per site
+    if args.max_panel_tiles > 0 and panel_train:
+        by_site = {}
+        for s, r, c in panel_train:
+            by_site.setdefault(s, []).append((s, r, c))
+        site_px = [int(sites[s]['mask'].sum()) for s in range(len(sites))]
+        total_px = sum(site_px[s] for s in by_site)
+        print(f"\n[Data] Capping panel tiles → {args.max_panel_tiles} total (proportional by panel pixels):")
+        capped = []
+        for s_idx in sorted(by_site):
+            tiles = by_site[s_idx]
+            w = site_px[s_idx] / total_px if total_px > 0 else 1.0 / len(by_site)
+            cap = max(1, round(args.max_panel_tiles * w))
+            chosen = _random.Random(99 + s_idx).sample(tiles, min(cap, len(tiles)))
+            capped.extend(chosen)
+            print(f"         Site {s_idx} ({os.path.basename(args.ortho[s_idx])}): "
+                  f"{len(tiles)} avail → {len(chosen)} kept  ({w:.1%} weight, cap={cap})")
+        panel_train = capped
+
     oversampled = panel_train * args.panel_oversample + bg_train
     _random.Random(42).shuffle(oversampled)
     print(f"\n[Data] {len(args.ortho)} site(s) combined — train: {len(all_train_idx)} raw "
@@ -600,8 +633,11 @@ def main():
         print(f"\n[Train] --skip_phase1: jumping to Phase 2 at epoch {start_ep}, lr={args.lr / 3:.2e}")
         _unfreeze_encoder_for_phase2(encoder, args.freeze_encoder_bn)
         _lc2, _lw2, _mt2 = _build_phase2_loss()
+        _opt2 = tf.keras.optimizers.Adam(learning_rate=args.lr / 3)
+        if tf.keras.mixed_precision.global_policy().name == 'mixed_float16':
+            _opt2 = tf.keras.mixed_precision.LossScaleOptimizer(_opt2)
         model.compile(
-            optimizer=tf.keras.optimizers.Adam(learning_rate=args.lr / 3),
+            optimizer=_opt2,
             loss=_lc2, loss_weights=_lw2, metrics=_mt2,
         )
         history = model.fit(
